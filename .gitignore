@@ -1,0 +1,9 @@
+node_modules
+dist
+dev-dist
+*.local
+.DS_Store
+
+# 個人情報を含む仕様書と、このPC専用の設定は公開しない
+SPEC.md
+.claude/
