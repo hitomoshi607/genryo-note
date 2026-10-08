@@ -108,8 +108,15 @@ export const deleteMeal = (d: string, id: string) =>
     return { ...s, meals };
   });
 
+/** 同じ id があれば同じ位置で置き換え、なければ末尾に足す */
 export const addFavorite = (fav: Favorite) =>
-  update((s) => ({ ...s, favorites: [...s.favorites.filter((f) => f.id !== fav.id), fav] }));
+  update((s) => {
+    const i = s.favorites.findIndex((f) => f.id === fav.id);
+    const favorites = [...s.favorites];
+    if (i >= 0) favorites[i] = fav;
+    else favorites.push(fav);
+    return { ...s, favorites };
+  });
 
 export const deleteFavorite = (id: string) => update((s) => ({ ...s, favorites: s.favorites.filter((f) => f.id !== id) }));
 

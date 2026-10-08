@@ -7,10 +7,11 @@ import { jDate } from '../lib/date';
 import { comma } from '../lib/format';
 import { SLOT_LABEL, dayTotals, defaultSlot, newMealId, nowHHMM, sumItems } from '../lib/meals';
 import { deleteMealPhoto, downscale, saveMealPhoto, useMealPhoto, useObjectUrl } from '../lib/photos';
-import { MEAL_SLOTS, isGym, normalizeItem, type Meal, type MealItem, type MealSlot } from '../lib/schema';
+import { MEAL_SLOTS, isGym, type Meal, type MealItem, type MealSlot } from '../lib/schema';
 import { useData } from '../lib/store';
 import { ConfirmButton, HelpButton, Sheet, useUI } from '../ui';
 import { IconCamera } from './Icons';
+import { ItemRows, PasteButton, toItems, toRow, type Row } from './ItemRows';
 
 export interface MealTarget {
   date: string;
@@ -25,22 +26,6 @@ export function MealSheet({ target, onClose }: { target: MealTarget | null; onCl
   );
 }
 
-/** 入力中の品目（数値も文字列で持つ） */
-interface Row {
-  name: string;
-  amount: string;
-  kcal: string;
-  p: string;
-  f: string;
-  c: string;
-}
-
-const toRow = (i: MealItem): Row => ({ name: i.name, amount: i.amount, kcal: String(i.kcal), p: String(i.p), f: String(i.f), c: String(i.c) });
-const EMPTY_ROW: Row = { name: '', amount: '', kcal: '', p: '', f: '', c: '' };
-const toItems = (rows: Row[]) =>
-  rows
-    .map((r) => normalizeItem({ name: r.name, amount: r.amount, kcal: +r.kcal || 0, p: +r.p || 0, f: +r.f || 0, c: +r.c || 0 }))
-    .filter((i): i is MealItem => i !== null);
 
 const CONF_LABEL = { high: '高い', medium: 'ふつう', low: '低い' } as const;
 
@@ -64,8 +49,6 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
   const [flags, setFlags] = useState({ fried: false, heavy: false });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteText, setPasteText] = useState('');
   const [fav, setFav] = useState(false);
   const [favName, setFavName] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -115,23 +98,12 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
       setEst({ ...p.est, usd: 0, model: 'claude.ai' });
       setRows(p.est.items.map(toRow));
       setFlags({ fried: p.est.fried, heavy: p.est.heavyLunch && s === 'lunch' });
-      setPasteOpen(false);
-      setPasteText('');
       setErr('');
+      return true;
     } catch (e) {
       setErr(e instanceof AiError ? e.message : '貼り付けた文字を読み取れませんでした。');
+      return false;
     }
-  };
-
-  const paste = async () => {
-    setErr('');
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text.trim()) return applyPaste(text);
-    } catch {
-      /* 読めない環境では下の入力欄に貼ってもらう */
-    }
-    setPasteOpen(true);
   };
 
   const save = async () => {
@@ -169,7 +141,6 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
     }
   };
 
-  const setRow = (i: number, k: keyof Row, v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
   const photoUrl = preview ?? savedPhoto;
 
   return (
@@ -220,29 +191,14 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
         </div>
       )}
       <div className="free-row">
-        <button type="button" className={`btn ${ai ? 'ghost sm' : ''}`} disabled={busy} onClick={() => void paste()}>
+        <PasteButton className={`btn ${ai ? 'ghost sm' : ''}`} disabled={busy} onText={applyPaste}>
           claude.ai の結果を貼り付け
-        </button>
+        </PasteButton>
         <a className="link" href={ESTIMATOR_URL} target="_blank" rel="noopener noreferrer">
           推定ページを開く
         </a>
         <HelpButton k="meal-free" label="claude.ai で無料で推定するには" />
       </div>
-      {pasteOpen && (
-        <div className="paste">
-          <textarea
-            className="inp ta"
-            rows={3}
-            placeholder="推定ページの「減量ノート用にコピー」で写した文字をここに貼り付け"
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            aria-label="推定結果の貼り付け"
-          />
-          <button type="button" className="btn sm" disabled={!pasteText.trim()} onClick={() => applyPaste(pasteText)}>
-            読み込む
-          </button>
-        </div>
-      )}
       {d.favorites.length > 0 && (
         <div className="fav-add">
           <span className="sm muted">よく食べるものから追加</span>
@@ -302,39 +258,7 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
         </div>
       )}
 
-      {rows.length > 0 && (
-        <ul className="items">
-          {rows.map((r, i) => (
-            <li key={i}>
-              <div className="it-top">
-                <input className="inp it-name" value={r.name} placeholder="品目" aria-label="品目" onChange={(e) => setRow(i, 'name', e.target.value)} />
-                <button type="button" className="del" aria-label={`${r.name || '品目'}を削除`} onClick={() => setRows(rows.filter((_, j) => j !== i))}>
-                  削除
-                </button>
-              </div>
-              <input className="inp it-amt" value={r.amount} placeholder="量（例：茶碗1杯）" aria-label="量" onChange={(e) => setRow(i, 'amount', e.target.value)} />
-              <div className="it-nums">
-                {(
-                  [
-                    ['kcal', 'kcal'],
-                    ['p', 'P g'],
-                    ['f', 'F g'],
-                    ['c', 'C g'],
-                  ] as const
-                ).map(([k, l]) => (
-                  <label key={k}>
-                    <span>{l}</span>
-                    <input className="inp n" type="number" inputMode="numeric" min="0" value={r[k]} onChange={(e) => setRow(i, k, e.target.value)} />
-                  </label>
-                ))}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <button type="button" className="link" onClick={() => setRows([...rows, EMPTY_ROW])}>
-        ＋ 品目を手で追加
-      </button>
+      <ItemRows rows={rows} onChange={setRows} />
 
       {items.length > 0 && (
         <div className="meal-total n">

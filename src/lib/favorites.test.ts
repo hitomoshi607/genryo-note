@@ -39,3 +39,17 @@ describe('よく食べる食事', () => {
     expect(getData().favorites.length).toBe(DEFAULT_FAVORITES.length - 1);
   });
 });
+
+describe('よく食べる食事の追加と編集', () => {
+  it('同じ id なら同じ位置で置き換え、新しい id は末尾に足す', async () => {
+    const { addFavorite } = await import('./actions');
+    setData(defaults());
+    const before = getData().favorites.map((f) => f.id);
+    addFavorite({ id: 'f-teishoku', name: '学食（大盛り）', slot: 'lunch', items: [{ name: '定食', amount: '', kcal: 800, p: 35, f: 25, c: 110 }] });
+    expect(getData().favorites.map((f) => f.id)).toEqual(before);
+    expect(getData().favorites.find((f) => f.id === 'f-teishoku')?.name).toBe('学食（大盛り）');
+    addFavorite({ id: 'f-curry', name: '母のカレー', items: [{ name: 'カレー', amount: '1皿', kcal: 750, p: 20, f: 25, c: 110 }] });
+    expect(getData().favorites.at(-1)?.id).toBe('f-curry');
+    expect(getData().meals).toEqual({});
+  });
+});

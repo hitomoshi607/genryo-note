@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import { IconBody, IconFood, IconGear, IconGym, IconHabit, IconToday } from './components/Icons';
+import { FavoriteSheet, type FavoriteTarget } from './components/FavoriteSheet';
 import { MealSheet, type MealTarget } from './components/MealSheet';
 import { RestTimerBar } from './components/RestTimer';
 import { HelpSheet, SettingsSheet, SosSheet, UpdatePrompt } from './components/Sheets';
@@ -32,6 +33,7 @@ export function App() {
   const [sos, setSos] = useState(false);
   const [settings, setSettings] = useState(false);
   const [meal, setMeal] = useState<MealTarget | null>(null);
+  const [favorite, setFavorite] = useState<FavoriteTarget | null>(null);
 
   useEffect(() => {
     const t = d.settings.theme;
@@ -49,6 +51,7 @@ export function App() {
       openSos: () => setSos(true),
       openSettings: () => setSettings(true),
       openMeal: setMeal,
+      openFavorite: setFavorite,
       go: (t, opts) => {
         if (opts?.gymDay) setGymDay(opts.gymDay);
         setTab(t);
@@ -102,6 +105,7 @@ export function App() {
         <SosSheet open={sos} onClose={() => setSos(false)} />
         <SettingsSheet open={settings} onClose={() => setSettings(false)} />
         <MealSheet target={meal} onClose={() => setMeal(null)} />
+        <FavoriteSheet target={favorite} onClose={() => setFavorite(null)} />
       </UIContext.Provider>
     </TodayContext.Provider>
   );

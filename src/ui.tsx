@@ -1,6 +1,6 @@
 // 画面全体で使う共通部品と、シート（ヘルプ・設定など）を開くためのコンテキスト
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import type { GymDay, Meal } from './lib/schema';
+import type { Favorite, GymDay, Meal } from './lib/schema';
 
 export type Tab = 'today' | 'body' | 'gym' | 'food' | 'habit';
 
@@ -10,6 +10,8 @@ export interface UI {
   openSettings: () => void;
   /** 食事の記録（meal を渡すと編集） */
   openMeal: (target: { date: string; meal?: Meal }) => void;
+  /** よく食べる食事の追加（fav を渡すと編集） */
+  openFavorite: (target: { fav?: Favorite }) => void;
   go: (tab: Tab, opts?: { gymDay?: GymDay }) => void;
 }
 
@@ -18,6 +20,7 @@ export const UIContext = createContext<UI>({
   openSos: () => {},
   openSettings: () => {},
   openMeal: () => {},
+  openFavorite: () => {},
   go: () => {},
 });
 export const useUI = () => useContext(UIContext);

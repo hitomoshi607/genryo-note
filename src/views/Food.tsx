@@ -54,15 +54,13 @@ function MealLog() {
       </div>
       <Meter label="エネルギー" value={tot.kcal} max={t.kcal} unit="kcal" over />
       <Meter label="タンパク質" value={tot.p} max={t.p} unit="g" />
-      {d.favorites.length > 0 && (
-        <div className="fav-block">
-          <div className="fav-h">
-            <span className="sm muted">よく食べる（タップで記録）</span>
-            <HelpButton k="favorites" label="よく食べる食事について" />
-          </div>
-          <FavoriteChips date={date} favorites={d.favorites} manageable />
+      <div className="fav-block">
+        <div className="fav-h">
+          <span className="sm muted">よく食べる（タップで記録）</span>
+          <HelpButton k="favorites" label="よく食べる食事について" />
         </div>
-      )}
+        <FavoriteChips date={date} favorites={d.favorites} manageable />
+      </div>
       {list.length > 0 && (
         <ul className="meals">
           {list.map((m) => (

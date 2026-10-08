@@ -2272,3 +2272,22 @@ dialog::backdrop {
   font-weight: 500;
   color: var(--ink-2);
 }
+
+/* ---------- よく食べる食事の追加・編集 ---------- */
+.free-row .paste {
+  flex: 1 1 100%;
+}
+.slots.five {
+  grid-template-columns: repeat(5, 1fr);
+}
+.slots.five button {
+  font-size: 0.85rem;
+}
+.fav-tools {
+  display: flex;
+  gap: 1rem;
+}
+.chip.edit-chip {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
