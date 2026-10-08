@@ -130,16 +130,16 @@ export function parseEstimate(raw: unknown): MealEstimate {
   };
 }
 
-/* ---------- claude.ai の推定ページから貼り付け ---------- */
+/* ---------- claude.ai（チャット・推定ページ）から貼り付け ---------- */
 
 /**
- * 推定ページの「減量ノート用にコピー」で作った文字を読む。
- * 前後に余計な文字があっても、最初の { から最後の } までを JSON として読む。
+ * Claude のチャットの返事か、推定ページの「減量ノート用にコピー」で作った文字を読む。
+ * 前後に説明文やコードブロックの印があっても、最初の { から最後の } までを JSON として読む。
  */
 export function parsePastedMeal(text: string): { est: MealEstimate; slot?: MealSlot; note?: string } {
   const a = text.indexOf('{');
   const b = text.lastIndexOf('}');
-  if (a < 0 || b <= a) throw new AiError('bad', '貼り付けた文字に推定結果が見つかりませんでした。推定ページの「減量ノート用にコピー」を押してから貼り付けてください。');
+  if (a < 0 || b <= a) throw new AiError('bad', '貼り付けた文字に推定結果が見つかりませんでした。Claude の返事をコピーしてから貼り付けてください。');
   let raw: unknown;
   try {
     raw = JSON.parse(text.slice(a, b + 1));
@@ -189,6 +189,46 @@ export function userText(input: EstimateInput) {
   ];
   if (!input.image) lines.unshift('写真はありません。メモから推定してください。');
   return lines.join('\n');
+}
+
+/** Claude のチャット（claude.ai・Claude アプリ）に写真と一緒に送る文 */
+export interface ChatPromptInput {
+  /** よく食べる食事の登録では区分なし */
+  slot?: MealSlot;
+  note: string;
+  gymDay: boolean;
+  /** この食事を除いた、その日のここまでの合計（よく食べる食事の登録ではなし） */
+  eaten?: Totals;
+  target: { kcal: number; p: number };
+}
+
+export function chatPrompt(input: ChatPromptInput) {
+  const example = {
+    genryo_meal: 1,
+    ...(input.slot ? { slot: input.slot } : {}),
+    is_food: true,
+    items: [{ name: 'ご飯', amount: '茶碗1杯（約150g）', kcal: 234, protein_g: 4, fat_g: 1, carb_g: 56 }],
+    rice_g: 150,
+    fried: false,
+    sugary_drink: false,
+    heavy_lunch: false,
+    confidence: 'medium',
+    notes: '推定の前提や不確かな点を1文で',
+    advice: '次の食事でできることを1文で',
+  };
+  return [
+    '【減量ノート】添付した食事の写真（写真がなければ下のメモ）から、品目ごとの量・エネルギー・たんぱく質・脂質・炭水化物を推定してください。',
+    '',
+    systemPrompt(input.target),
+    '',
+    ...(input.slot ? [`食事区分: ${SLOT_LABEL[input.slot]}${input.gymDay ? '（ジムの日）' : ''}`] : []),
+    `メモ: ${input.note.trim() || 'なし'}`,
+    ...(input.eaten ? [`今日これまで（この食事を除く）: ${Math.round(input.eaten.kcal)}kcal・たんぱく質 ${Math.round(input.eaten.p)}g`] : []),
+    '',
+    '返事は次の形の JSON だけにしてください（数値は単位なしの数字）。',
+    JSON.stringify(example),
+    'heavy_lunch はカツ丼・カレー大盛り・ラーメン＋ライスのどれかなら true。confidence は high・medium・low のどれか。rice_g はご飯がなければ 0。',
+  ].join('\n');
 }
 
 /* ---------- 画像 ---------- */

@@ -111,7 +111,7 @@ textarea.copy { width: 100%; min-height: 96px; font-family: ui-monospace, Menlo,
     <h2 id="h-how">減量ノートへの入れ方</h2>
     <ol class="steps">
       <li>「減量ノート用にコピー」を押す</li>
-      <li>ホーム画面の減量ノートを開き、「食事を記録」→「claude.ai の結果を貼り付け」</li>
+      <li>ホーム画面の減量ノートを開き、「食事を記録」→「② 結果を貼り付け」</li>
       <li>数字を確かめて保存（写真からの推定は量で2〜3割ずれることがあります）</li>
     </ol>
   </section>
@@ -238,7 +238,7 @@ textarea.copy { width: 100%; min-height: 96px; font-family: ui-monospace, Menlo,
 
   const MESSAGES = {
     not_food: "食べ物が見つかりませんでした。写真を撮り直すか、メモに料理名を書いてください。",
-    images_unavailable: "この画面では写真を送れません。メモだけで推定してください。",
+    images_unavailable: "この画面では写真を送れません。写真から推定するときは、減量ノートの「食事を記録」→「① Claude 用にコピー」を押し、Claude アプリのチャットに貼り付けて写真と一緒に送ってください。",
     image_rejected: "この写真は使えません（形式か大きさ）。別の写真を選んでください。",
     rate_limited: "claude.ai の利用上限か、短時間に送りすぎです。しばらくしてから試してください。",
     session_expired: "claude.ai にログインし直してから、もう一度試してください。",
@@ -332,7 +332,7 @@ textarea.copy { width: 100%; min-height: 96px; font-family: ui-monospace, Menlo,
     box.value = text;
     try {
       await navigator.clipboard.writeText(text);
-      $("#copyStatus").textContent = "コピーしました。減量ノートの「食事を記録」→「claude.ai の結果を貼り付け」へ。";
+      $("#copyStatus").textContent = "コピーしました。減量ノートの「食事を記録」→「② 結果を貼り付け」へ。";
     } catch {
       box.hidden = false;
       box.focus();
@@ -362,7 +362,7 @@ textarea.copy { width: 100%; min-height: 96px; font-family: ui-monospace, Menlo,
       file = null;
     }
     $("#run").disabled = false;
-    setStatus(caps && caps.images ? "" : "この画面では写真を送れません。メモに料理名と量を書いて推定してください。");
+    setStatus(caps && caps.images ? "" : "この画面では写真を送れません。写真から推定するときは、減量ノートの「食事を記録」→「① Claude 用にコピー」を押し、Claude アプリのチャットに貼り付けて写真と一緒に送ってください。メモだけなら、ここでも推定できます。");
   });
 })();
 </script>

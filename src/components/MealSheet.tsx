@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ESTIMATOR_URL } from '../data/links';
 import { addFavorite, bumpFood, deleteMeal, saveMeal } from '../lib/actions';
-import { AiError, YEN_PER_USD, estimateMeal, loadAi, parsePastedMeal, type MealEstimate } from '../lib/ai';
+import { AiError, YEN_PER_USD, chatPrompt, estimateMeal, loadAi, parsePastedMeal, type MealEstimate } from '../lib/ai';
 import { calcTargets, dayTypeOf, latestComp } from '../lib/calc';
 import { jDate } from '../lib/date';
 import { comma } from '../lib/format';
@@ -11,7 +10,7 @@ import { MEAL_SLOTS, isGym, type Meal, type MealItem, type MealSlot } from '../l
 import { useData } from '../lib/store';
 import { ConfirmButton, HelpButton, Sheet, useUI } from '../ui';
 import { IconCamera } from './Icons';
-import { ItemRows, PasteButton, toItems, toRow, type Row } from './ItemRows';
+import { CopyButton, ItemRows, PasteButton, toItems, toRow, type Row } from './ItemRows';
 
 export interface MealTarget {
   date: string;
@@ -88,7 +87,7 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
     }
   };
 
-  /** claude.ai の推定ページでコピーした結果を読み込む */
+  /** Claude のチャットの返事（または推定ページでコピーした結果）を読み込む */
   const applyPaste = (text: string) => {
     try {
       const p = parsePastedMeal(text);
@@ -190,14 +189,18 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
           <HelpButton k="meal-ai" label="写真からの推定について" />
         </div>
       )}
-      <div className="free-row">
-        <PasteButton className={`btn ${ai ? 'ghost sm' : ''}`} disabled={busy} onText={applyPaste}>
-          claude.ai の結果を貼り付け
+      <div className="chat-row">
+        <CopyButton
+          className={`btn${ai ? ' ghost' : ''}`}
+          disabled={busy}
+          text={() => chatPrompt({ slot, note, gymDay, eaten: before, target: { kcal: t.kcal, p: t.p } })}
+        >
+          ① Claude 用にコピー
+        </CopyButton>
+        <PasteButton className="btn ghost" disabled={busy} onText={applyPaste}>
+          ② 結果を貼り付け
         </PasteButton>
-        <a className="link" href={ESTIMATOR_URL} target="_blank" rel="noopener noreferrer">
-          推定ページを開く
-        </a>
-        <HelpButton k="meal-free" label="claude.ai で無料で推定するには" />
+        <HelpButton k="meal-free" label="Claude のチャットで無料で推定するには" />
       </div>
       {d.favorites.length > 0 && (
         <div className="fav-add">
@@ -253,7 +256,7 @@ function MealForm({ target, onDone }: { target: MealTarget; onDone: () => void }
           )}
           {est.sugaryDrink && <p className="sm warn-t">甘い飲み物が含まれています</p>}
           <p className="sm muted n">
-            {est.model === 'claude.ai' ? 'claude.ai の推定ページで推定（API 料金なし）' : `推定費用 約${(est.usd * YEN_PER_USD).toFixed(1)}円`}
+            {est.model === 'claude.ai' ? 'claude.ai で推定（API 料金なし）' : `推定費用 約${(est.usd * YEN_PER_USD).toFixed(1)}円`}
           </p>
         </div>
       )}

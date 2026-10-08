@@ -1,5 +1,5 @@
-// 品目の入力欄（食事の記録と、よく食べる食事の編集で共通）と、claude.ai の結果の貼り付け
-import { useState, type ReactNode } from 'react';
+// 品目の入力欄（食事の記録と、よく食べる食事の編集で共通）と、Claude のチャットとのコピー・貼り付け
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { normalizeItem, type MealItem } from '../lib/schema';
 
 /** 入力中の品目（数値も文字列で持つ） */
@@ -61,7 +61,48 @@ export function ItemRows({ rows, onChange }: { rows: Row[]; onChange: (rows: Row
 }
 
 /**
- * 「claude.ai の結果を貼り付け」ボタン。クリップボードが読めない環境では入力欄を出す。
+ * 「Claude 用にコピー」ボタン。押したときの text() をクリップボードに写す。
+ * 書き込めない環境では文字を選んだ状態で出し、長押しでコピーしてもらう
+ */
+export function CopyButton({ text, disabled, className, children }: { text: () => string; disabled?: boolean; className?: string; children: ReactNode }) {
+  const [done, setDone] = useState(false);
+  const [manual, setManual] = useState('');
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!done) return;
+    const id = setTimeout(() => setDone(false), 4000);
+    return () => clearTimeout(id);
+  }, [done]);
+  useEffect(() => {
+    if (manual) boxRef.current?.select();
+  }, [manual]);
+  const copy = async () => {
+    const t = text();
+    try {
+      await navigator.clipboard.writeText(t);
+      setManual('');
+      setDone(true);
+    } catch {
+      setManual(t);
+    }
+  };
+  return (
+    <>
+      <button type="button" className={className} disabled={disabled} onClick={() => void copy()}>
+        {done ? 'コピーしました' : children}
+      </button>
+      {manual && (
+        <div className="paste">
+          <p className="sm muted">自動でコピーできませんでした。下の文字を長押しして「すべてを選択」→「コピー」してください。</p>
+          <textarea ref={boxRef} className="inp ta" rows={3} readOnly value={manual} aria-label="Claude に送る文" />
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * 「Claude の結果を貼り付け」ボタン。クリップボードが読めない環境では入力欄を出す。
  * 読み取った文字は onText に渡し、解釈は呼び出し側が行う（失敗したら false を返す）
  */
 export function PasteButton({ onText, disabled, className, children }: { onText: (text: string) => boolean; disabled?: boolean; className?: string; children: ReactNode }) {
@@ -86,7 +127,7 @@ export function PasteButton({ onText, disabled, className, children }: { onText:
           <textarea
             className="inp ta"
             rows={3}
-            placeholder="推定ページの「減量ノート用にコピー」で写した文字をここに貼り付け"
+            placeholder="Claude の返事をここに貼り付け"
             value={text}
             onChange={(e) => setText(e.target.value)}
             aria-label="推定結果の貼り付け"

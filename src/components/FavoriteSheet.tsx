@@ -1,13 +1,14 @@
 // よく食べる食事を、食事として記録せずに追加・編集・削除する
 import { useState } from 'react';
-import { ESTIMATOR_URL } from '../data/links';
 import { addFavorite, deleteFavorite } from '../lib/actions';
-import { AiError, parsePastedMeal } from '../lib/ai';
+import { AiError, chatPrompt, parsePastedMeal } from '../lib/ai';
+import { calcTargets, latestComp } from '../lib/calc';
 import { comma } from '../lib/format';
 import { SLOT_LABEL, sumItems } from '../lib/meals';
 import { MEAL_SLOTS, type Favorite, type MealSlot } from '../lib/schema';
+import { useData } from '../lib/store';
 import { ConfirmButton, HelpButton, Sheet } from '../ui';
-import { ItemRows, PasteButton, toItems, toRow, type Row } from './ItemRows';
+import { CopyButton, ItemRows, PasteButton, toItems, toRow, type Row } from './ItemRows';
 
 export interface FavoriteTarget {
   fav?: Favorite;
@@ -22,12 +23,14 @@ export function FavoriteSheet({ target, onClose }: { target: FavoriteTarget | nu
 }
 
 function FavoriteForm({ fav, onDone }: { fav?: Favorite; onDone: () => void }) {
+  const d = useData();
   const [name, setName] = useState(fav?.name ?? '');
   const [slot, setSlot] = useState<MealSlot | 'any'>(fav?.slot ?? 'any');
   const [rows, setRows] = useState<Row[]>(fav ? fav.items.map(toRow) : []);
   const [err, setErr] = useState('');
   const items = toItems(rows);
   const total = sumItems(items);
+  const t = calcTargets(latestComp(d));
 
   const applyPaste = (text: string) => {
     try {
@@ -74,14 +77,17 @@ function FavoriteForm({ fav, onDone }: { fav?: Favorite; onDone: () => void }) {
         ))}
       </div>
 
-      <div className="free-row">
-        <PasteButton className="btn ghost sm" onText={applyPaste}>
-          claude.ai の結果を貼り付け
+      <div className="chat-row">
+        <CopyButton
+          className="btn ghost"
+          text={() => chatPrompt({ ...(slot !== 'any' ? { slot } : {}), note: name, gymDay: false, target: { kcal: t.kcal, p: t.p } })}
+        >
+          ① Claude 用にコピー
+        </CopyButton>
+        <PasteButton className="btn ghost" onText={applyPaste}>
+          ② 結果を貼り付け
         </PasteButton>
-        <a className="link" href={ESTIMATOR_URL} target="_blank" rel="noopener noreferrer">
-          推定ページを開く
-        </a>
-        <HelpButton k="favorites" label="よく食べる食事について" />
+        <HelpButton k="meal-free" label="Claude のチャットで推定するには" />
       </div>
 
       <ItemRows rows={rows} onChange={setRows} />

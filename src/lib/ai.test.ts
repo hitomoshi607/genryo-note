@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AiError, blobToBase64, estimateMeal, parseEstimate, parsePastedMeal, usdCost, type EstimateInput } from './ai';
+import { AiError, blobToBase64, chatPrompt, estimateMeal, parseEstimate, parsePastedMeal, usdCost, type EstimateInput } from './ai';
 import { dayTotals, defaultSlot, sumItems } from './meals';
 import { defaults } from './schema';
 
@@ -147,5 +147,31 @@ describe('claude.ai の推定ページから貼り付け', () => {
   it('関係ない文字はエラー', () => {
     expect(() => parsePastedMeal('こんにちは')).toThrow(AiError);
     expect(() => parsePastedMeal('{壊れた}')).toThrow(AiError);
+  });
+});
+
+describe('Claude のチャットで推定', () => {
+  const target = { kcal: 2050, p: 130 };
+
+  it('送る文に区分・メモ・今日の合計・返事の形が入る', () => {
+    const t = chatPrompt({ slot: 'dinner', note: 'ご飯は150g', gymDay: true, eaten: { kcal: 1234.4, p: 80.2, f: 0, c: 0 }, target });
+    expect(t).toContain('食事区分: 夕（ジムの日）');
+    expect(t).toContain('メモ: ご飯は150g');
+    expect(t).toContain('今日これまで（この食事を除く）: 1234kcal・たんぱく質 80g');
+    expect(t).toContain('2050kcal');
+    expect(t).toContain('"genryo_meal":1,"slot":"dinner"');
+  });
+  it('区分なし（よく食べる食事の登録）では区分と今日の合計を入れない', () => {
+    const t = chatPrompt({ note: '', gymDay: false, target });
+    expect(t).not.toContain('食事区分');
+    expect(t).not.toContain('今日これまで');
+    expect(t).not.toContain('"slot"');
+    expect(t).toContain('メモ: なし');
+  });
+  it('チャットの返事（説明文とコードブロック付き）をそのまま貼り付けて読める', () => {
+    const reply = `推定しました。\n\n\`\`\`json\n${JSON.stringify({ genryo_meal: 1, slot: 'dinner', ...GOOD }, null, 2)}\n\`\`\`\n\n量は写真からの目安です。`;
+    const r = parsePastedMeal(reply);
+    expect(r.slot).toBe('dinner');
+    expect(r.est.items.map((i) => i.name)).toEqual(['ご飯', '鶏の唐揚げ']);
   });
 });

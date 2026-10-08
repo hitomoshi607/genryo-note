@@ -2291,3 +2291,27 @@ dialog::backdrop {
   background: var(--blue-soft);
   color: var(--blue);
 }
+
+/* ---------- Claude のチャットとのコピー・貼り付け ---------- */
+.chat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+/* ボタンは1行目に並べ、出てきた入力欄はその下に置く */
+.chat-row > button {
+  grid-row: 1;
+}
+.chat-row .btn {
+  padding-inline: 0.5rem;
+  white-space: nowrap;
+}
+.chat-row .paste {
+  grid-column: 1 / -1;
+}
+.dlg li a {
+  color: var(--blue);
+  font-weight: 700;
+}
