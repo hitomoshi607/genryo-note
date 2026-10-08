@@ -160,6 +160,8 @@ describe('Claude のチャットで推定', () => {
     expect(t).toContain('今日これまで（この食事を除く）: 1234kcal・たんぱく質 80g');
     expect(t).toContain('2050kcal');
     expect(t).toContain('"genryo_meal":1,"slot":"dinner"');
+    expect(t).toContain('すべて');
+    expect(t).toContain('料理の数だけ');
   });
   it('区分なし（よく食べる食事の登録）では区分と今日の合計を入れない', () => {
     const t = chatPrompt({ note: '', gymDay: false, target });
@@ -173,5 +175,42 @@ describe('Claude のチャットで推定', () => {
     const r = parsePastedMeal(reply);
     expect(r.slot).toBe('dinner');
     expect(r.est.items.map((i) => i.name)).toEqual(['ご飯', '鶏の唐揚げ']);
+  });
+  it('送る文をそのまま貼り付けたら、推定結果として読まずに返事をコピーするよう伝える', () => {
+    const prompt = chatPrompt({ slot: 'dinner', note: '', gymDay: false, eaten: { kcal: 0, p: 0, f: 0, c: 0 }, target });
+    expect(() => parsePastedMeal(prompt)).toThrow(/Claude に送る文/);
+  });
+  it('送る文と返事をまとめて貼り付けても、返事の全品目を読む', () => {
+    const prompt = chatPrompt({ slot: 'dinner', note: '', gymDay: false, target });
+    const reply = JSON.stringify({
+      genryo_meal: 1,
+      slot: 'dinner',
+      is_food: true,
+      items: [
+        { name: 'ご飯', amount: '茶碗1杯', kcal: 250, protein_g: 4, fat_g: 0, carb_g: 59 },
+        { name: '豚の生姜焼き', amount: '約120g', kcal: 330, protein_g: 22, fat_g: 22, carb_g: 8 },
+        { name: '味噌汁', amount: '1杯', kcal: 45, protein_g: 3, fat_g: 1, carb_g: 5 },
+        { name: 'キャベツの千切り', amount: '小皿1杯', kcal: 15, protein_g: 1, fat_g: 0, carb_g: 3 },
+        { name: 'ほうれん草のおひたし', amount: '小鉢1つ', kcal: 25, protein_g: 2, fat_g: 0, carb_g: 3 },
+      ],
+      rice_g: 160,
+      fried: false,
+      sugary_drink: false,
+      heavy_lunch: false,
+      confidence: 'medium',
+      notes: '生姜焼きのたれで前後します。',
+      advice: 'このままで大丈夫です。',
+    });
+    const r = parsePastedMeal(`${prompt}
+
+${reply}`);
+    expect(r.est.items.map((i) => i.name)).toEqual(['ご飯', '豚の生姜焼き', '味噌汁', 'キャベツの千切り', 'ほうれん草のおひたし']);
+  });
+  it('数値が文字（"約250kcal" など）で来ても読む', () => {
+    const r = parsePastedMeal(
+      JSON.stringify({ ...GOOD, rice_g: '約180g', items: [{ name: 'ご飯', amount: '1杯', kcal: '約281kcal', protein_g: '4.5', fat_g: '0.5', carb_g: '1,066' }] }),
+    );
+    expect(r.est.items[0]).toMatchObject({ kcal: 281, p: 5, f: 1 });
+    expect(r.est.riceG).toBe(180);
   });
 });

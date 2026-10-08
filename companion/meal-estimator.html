@@ -193,13 +193,13 @@ textarea.copy { width: 100%; min-height: 96px; font-family: ui-monospace, Menlo,
     const note = $("#note").value.trim();
     const gym = $("#gym").checked;
     return [
-      "あなたは日本の家庭料理・学食・コンビニ食に詳しい管理栄養士です。" + (file ? "添付の食事写真とメモ" : "メモ") + "から、品目ごとの量・エネルギー・たんぱく質・脂質・炭水化物を推定してください。",
+      "あなたは日本の家庭料理・学食・コンビニ食に詳しい管理栄養士です。" + (file ? "添付の食事写真とメモ" : "メモ") + "から、写っている料理・飲み物すべてについて、品目ごとの量・エネルギー・たんぱく質・脂質・炭水化物を推定してください。",
       "",
       "利用者: 21歳男性・165cm。筋肉を守りながら減量中。1日の目標は約2,050kcal・たんぱく質130g。実家で親の作った料理を食べています。",
       "ルール: ご飯は1食150g（ジムの日の夕食は180g）まで、主菜は手のひら1〜1.5枚、揚げ物は週2回まで、甘い飲み物は避ける、間食は1日200kcalまで。",
       "",
       "推定のしかた:",
-      "- 料理を1品ずつ分ける（ご飯・汁物・主菜・副菜・飲み物など）",
+      "- 写っている料理・飲み物は、ご飯・汁物・主菜・副菜・小鉢・飲み物まで、すべて1品ずつ分けて items に入れる。ご飯だけ・主菜だけにはしない",
       "- 量は茶碗・皿・箸・手などの大きさから見積もり、値は日本食品標準成分表に沿った一般的な値にする",
       "- 調理油・ドレッシング・ソースなど見えにくいカロリーも含める",
       "- メモに量や料理名があれば優先する",
@@ -209,9 +209,9 @@ textarea.copy { width: 100%; min-height: 96px; font-family: ui-monospace, Menlo,
       "食事区分: " + SLOTS[slot] + (gym ? "（ジムの日）" : ""),
       "メモ: " + (note || "なし"),
       "",
-      "次の形の JSON だけを返してください:",
-      '{"is_food":true,"items":[{"name":"ご飯","amount":"茶碗1杯（約150g）","kcal":234,"protein_g":4,"fat_g":1,"carb_g":56}],"rice_g":150,"fried":false,"sugary_drink":false,"heavy_lunch":false,"confidence":"medium","notes":"推定の前提や不確かな点を1文","advice":"次の食事でできることを1文。責めない言い方で"}',
-      "heavy_lunch はカツ丼・カレー大盛り・ラーメン＋ライスのどれかなら true。confidence は high・medium・low のどれか。rice_g はご飯がなければ 0。",
+      "次の形の JSON だけを返してください。items には写っている料理を1品ずつ、料理の数だけ入れます（料理名1・料理名2は形の例です）。",
+      '{"is_food":true,"items":[{"name":"料理名1","amount":"量の目安","kcal":数字,"protein_g":数字,"fat_g":数字,"carb_g":数字},{"name":"料理名2","amount":"量の目安","kcal":数字,"protein_g":数字,"fat_g":数字,"carb_g":数字}, …写っている料理の数だけ続ける],"rice_g":数字,"fried":true か false,"sugary_drink":true か false,"heavy_lunch":true か false,"confidence":"high・medium・low のどれか","notes":"推定の前提や不確かな点を1文","advice":"次の食事でできることを1文。責めない言い方で"}',
+      "数字は単位なしの数字にする。heavy_lunch はカツ丼・カレー大盛り・ラーメン＋ライスのどれかなら true。rice_g はご飯がなければ 0。",
     ].join("\n");
   }
 

@@ -104,6 +104,13 @@ export interface MealEstimate {
   advice: string;
 }
 
+/** チャットの返事で "約250kcal" のように文字で来た数値も読む */
+const toNum = (v: unknown) => {
+  if (typeof v !== 'string') return v;
+  const m = v.replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : undefined;
+};
+
 /** モデルの JSON を検証して整える。食べ物でなければ AiError('notfood') */
 export function parseEstimate(raw: unknown): MealEstimate {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -111,12 +118,13 @@ export function parseEstimate(raw: unknown): MealEstimate {
   const items = (Array.isArray(o.items) ? o.items : [])
     .map((x) => {
       const e = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
-      return normalizeItem({ name: e.name, amount: e.amount, kcal: e.kcal, p: e.protein_g, f: e.fat_g, c: e.carb_g });
+      return normalizeItem({ name: e.name, amount: e.amount, kcal: toNum(e.kcal), p: toNum(e.protein_g), f: toNum(e.fat_g), c: toNum(e.carb_g) });
     })
     .filter((i): i is MealItem => i !== null);
   if (!items.length) throw new AiError('bad', '推定結果を読み取れませんでした。もう一度試してください。');
   const conf = o.confidence === 'high' || o.confidence === 'low' ? o.confidence : 'medium';
-  const rice = typeof o.rice_g === 'number' && Number.isFinite(o.rice_g) ? Math.max(0, Math.round(o.rice_g)) : 0;
+  const riceRaw = toNum(o.rice_g);
+  const rice = typeof riceRaw === 'number' && Number.isFinite(riceRaw) ? Math.max(0, Math.round(riceRaw)) : 0;
   const text = (v: unknown) => (typeof v === 'string' ? v.slice(0, 200) : '');
   return {
     items,
@@ -132,21 +140,54 @@ export function parseEstimate(raw: unknown): MealEstimate {
 
 /* ---------- claude.ai（チャット・推定ページ）から貼り付け ---------- */
 
+/** 文字の中から、波かっこの釣り合った {…} を前から順に取り出す（"…" の中の括弧は数えない） */
+function braceBlocks(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') {
+      inStr = depth > 0;
+    } else if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}' && depth > 0) {
+      depth--;
+      if (depth === 0) out.push(text.slice(start, i + 1));
+    }
+  }
+  return out;
+}
+
 /**
  * Claude のチャットの返事か、推定ページの「減量ノート用にコピー」で作った文字を読む。
- * 前後に説明文やコードブロックの印があっても、最初の { から最後の } までを JSON として読む。
+ * 前後に説明文やコードブロックの印があっても、JSON として読める {…} のうち推定結果の形をした最後のものを使う
+ * （送る文と返事をまとめてコピーした場合も、返事のほうを読む）。
  */
 export function parsePastedMeal(text: string): { est: MealEstimate; slot?: MealSlot; note?: string } {
-  const a = text.indexOf('{');
-  const b = text.lastIndexOf('}');
-  if (a < 0 || b <= a) throw new AiError('bad', '貼り付けた文字に推定結果が見つかりませんでした。Claude の返事をコピーしてから貼り付けてください。');
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text.slice(a, b + 1));
-  } catch {
-    throw new AiError('bad', '貼り付けた文字を読み取れませんでした。もう一度コピーしてから貼り付けてください。');
+  const blocks = braceBlocks(text);
+  const parsed = blocks.flatMap((s) => {
+    try {
+      const v: unknown = JSON.parse(s);
+      return v && typeof v === 'object' && !Array.isArray(v) ? [v as Record<string, unknown>] : [];
+    } catch {
+      return [];
+    }
+  });
+  const o = parsed.reverse().find((v) => Array.isArray(v.items) || 'is_food' in v);
+  if (!o) {
+    if (text.includes(CHAT_MARK))
+      throw new AiError('bad', '貼り付けたのは「Claude に送る文」のままです。Claude の返事の下にあるコピーボタンで返事をコピーしてから、もう一度貼り付けてください。');
+    if (blocks.length) throw new AiError('bad', '貼り付けた文字を読み取れませんでした。もう一度コピーしてから貼り付けてください。');
+    throw new AiError('bad', '貼り付けた文字に推定結果が見つかりませんでした。Claude の返事をコピーしてから貼り付けてください。');
   }
-  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const est = parseEstimate(o);
   const slot = ['breakfast', 'lunch', 'snack', 'dinner'].includes(o.slot as string) ? (o.slot as MealSlot) : undefined;
   const note = typeof o.note === 'string' && o.note.trim() ? o.note.trim().slice(0, 200) : undefined;
@@ -171,7 +212,7 @@ export function systemPrompt(target: { kcal: number; p: number }) {
 利用者は21歳男性・165cm。筋肉を守りながら減量中で、1日の目標は ${target.kcal}kcal・たんぱく質 ${target.p}g。実家で親の作った料理を食べています。
 
 推定のしかた:
-- 料理を1品ずつ分けます（ご飯・汁物・主菜・副菜・飲み物など）。
+- 写っている料理・飲み物は、ご飯・汁物・主菜・副菜・小鉢・飲み物まで、すべて1品ずつ分けて items に入れます。ご飯だけ・主菜だけにはしません。
 - 量は茶碗・皿・箸・手などの大きさから見積もり、値は日本食品標準成分表に沿った一般的な値にします。
 - 調理油・ドレッシング・ソースなど見えにくいカロリーも含めます。
 - メモに量や料理名があれば、それを優先します。
@@ -202,22 +243,20 @@ export interface ChatPromptInput {
   target: { kcal: number; p: number };
 }
 
+/** Claude に送る文の目印。貼り付けた文字にこれがあれば、返事ではなく送る文をコピーしたままになっている */
+export const CHAT_MARK = '【減量ノート】';
+
 export function chatPrompt(input: ChatPromptInput) {
-  const example = {
-    genryo_meal: 1,
-    ...(input.slot ? { slot: input.slot } : {}),
-    is_food: true,
-    items: [{ name: 'ご飯', amount: '茶碗1杯（約150g）', kcal: 234, protein_g: 4, fat_g: 1, carb_g: 56 }],
-    rice_g: 150,
-    fried: false,
-    sugary_drink: false,
-    heavy_lunch: false,
-    confidence: 'medium',
-    notes: '推定の前提や不確かな点を1文で',
-    advice: '次の食事でできることを1文で',
-  };
+  // 形だけを示す見本。「数字」などはわざと JSON として読めない書き方にして、
+  // この文を貼り付けてしまったときに推定結果として読み込まれないようにする
+  const item = (n: number) => `{"name":"料理名${n}","amount":"量の目安","kcal":数字,"protein_g":数字,"fat_g":数字,"carb_g":数字}`;
+  const shape =
+    `{"genryo_meal":1,${input.slot ? `"slot":"${input.slot}",` : ''}"is_food":true,` +
+    `"items":[${item(1)},${item(2)}, …写っている料理の数だけ続ける],` +
+    `"rice_g":数字,"fried":true か false,"sugary_drink":true か false,"heavy_lunch":true か false,` +
+    `"confidence":"high・medium・low のどれか","notes":"推定の前提や不確かな点を1文で","advice":"次の食事でできることを1文で"}`;
   return [
-    '【減量ノート】添付した食事の写真（写真がなければ下のメモ）から、品目ごとの量・エネルギー・たんぱく質・脂質・炭水化物を推定してください。',
+    `${CHAT_MARK}添付した食事の写真（写真がなければ下のメモ）から、写っている料理・飲み物すべてについて、品目ごとの量・エネルギー・たんぱく質・脂質・炭水化物を推定してください。`,
     '',
     systemPrompt(input.target),
     '',
@@ -225,9 +264,9 @@ export function chatPrompt(input: ChatPromptInput) {
     `メモ: ${input.note.trim() || 'なし'}`,
     ...(input.eaten ? [`今日これまで（この食事を除く）: ${Math.round(input.eaten.kcal)}kcal・たんぱく質 ${Math.round(input.eaten.p)}g`] : []),
     '',
-    '返事は次の形の JSON だけにしてください（数値は単位なしの数字）。',
-    JSON.stringify(example),
-    'heavy_lunch はカツ丼・カレー大盛り・ラーメン＋ライスのどれかなら true。confidence は high・medium・low のどれか。rice_g はご飯がなければ 0。',
+    '返事は次の形の JSON だけにしてください。items には写っている料理を1品ずつ、料理の数だけ入れます（料理名1・料理名2は形の例です）。',
+    shape,
+    '数字は単位なしの数字にします。heavy_lunch はカツ丼・カレー大盛り・ラーメン＋ライスのどれかなら true。rice_g はご飯がなければ 0。',
   ].join('\n');
 }
 
