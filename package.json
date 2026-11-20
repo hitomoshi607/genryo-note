@@ -13,8 +13,6 @@
     "icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.1",
-    "idb-keyval": "^6.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

@@ -1,48 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS } from './seed';
-import { EQUIPMENT, WORKOUTS, weeklySets } from './plan';
-
-const all = Object.values(WORKOUTS).flatMap((w) => w.ex);
-const byMuscle = Object.fromEntries(weeklySets().map((x) => [x.m, x]));
+import { ALL_EXERCISES, EQUIPMENT, WORKOUTS, pace } from './plan';
 
 describe('筋トレメニュー', () => {
-  it('ジムの設備リストにあるものだけを使う', () => {
-    const allowed = new Set<string>(EQUIPMENT);
-    for (const e of all) for (const part of e.where.split('＋')) expect(allowed.has(part), `${e.n}: ${part}`).toBe(true);
-  });
+  const all = Object.values(WORKOUTS);
 
-  it('複数の日に出てくる種目は内容がそろっている（記録と提案を共有するため）', () => {
-    const seen = new Map<string, string>();
-    for (const e of all) {
-      const key = JSON.stringify([e.n, e.where, e.sets, e.lo, e.hi, e.inc]);
-      if (seen.has(e.id)) expect(key, e.id).toBe(seen.get(e.id));
-      seen.set(e.id, key);
+  it('使う設備はすべていつものジムにある', () => {
+    const eq = new Set<string>(EQUIPMENT);
+    for (const ex of ALL_EXERCISES) {
+      for (const w of [...ex.where, ...ex.alt.where]) expect(eq.has(w), `${ex.n}: ${w}`).toBe(true);
     }
   });
-
-  it('脚の前・胸・背中は週3回・9セット以上', () => {
-    for (const m of ['quads', 'chest', 'back']) {
-      expect(byMuscle[m].days, m).toBe(3);
-      expect(byMuscle[m].sets, m).toBeGreaterThanOrEqual(9);
+  it('どの日も4種目で、脚が入り、押す・引くがそろう', () => {
+    for (const w of all) {
+      expect(w.ex).toHaveLength(4);
+      expect(w.ex.some((e) => e.part === 'legs')).toBe(true);
+      expect(w.ex.some((e) => e.part === 'push')).toBe(true);
+      expect(w.ex.some((e) => e.part === 'pull')).toBe(true);
     }
   });
-
-  it('もも裏は週2回以上、腹は週3回・8セット以上（お腹まわり優先）', () => {
-    expect(byMuscle.hams.days).toBeGreaterThanOrEqual(2);
-    expect(byMuscle.abs.days).toBe(3);
-    expect(byMuscle.abs.sets).toBeGreaterThanOrEqual(8);
+  it('ベンチの日にベンチプレス、デッドの日にデッドリフト', () => {
+    expect(WORKOUTS.A.ex[0].id).toBe('bench');
+    expect(WORKOUTS.B.ex[0].id).toBe('deadlift');
   });
-
-  it('どの部位も週2セット以上は直接鍛える', () => {
-    for (const x of weeklySets()) expect(x.sets, x.label).toBeGreaterThanOrEqual(2);
+  it('1種目10分ほどに収まる（3セット × (動作45秒＋休憩)）', () => {
+    for (const ex of ALL_EXERCISES) expect(ex.sets * (45 + ex.restSec)).toBeLessThanOrEqual(600);
   });
-
-  it('1回あたり 20セット以内（約60〜80分に収める）', () => {
-    for (const [k, w] of Object.entries(WORKOUTS)) expect(w.ex.reduce((n, e) => n + e.sets, 0), k).toBeLessThanOrEqual(20);
+  it('種目の id は重ならない', () => {
+    expect(new Set(ALL_EXERCISES.map((e) => e.id)).size).toBe(ALL_EXERCISES.length);
   });
-
-  it('ジムの日は水・金・日（間が48・48・72時間）', () => {
-    const s = DEFAULT_SETTINGS.schedule;
-    expect([s['3'], s['5'], s['0']]).toEqual(['A', 'B', 'C']);
+  it('時速4.8km は 1km 12:30', () => {
+    expect(pace(4.8)).toBe('12:30');
+    expect(pace(6)).toBe('10:00');
   });
 });

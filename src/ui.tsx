@@ -1,26 +1,17 @@
 // 画面全体で使う共通部品と、シート（ヘルプ・設定など）を開くためのコンテキスト
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import type { Favorite, GymDay, Meal } from './lib/schema';
 
-export type Tab = 'today' | 'body' | 'gym' | 'food' | 'habit';
+export type Tab = 'today' | 'weight' | 'sleep' | 'gym';
 
 export interface UI {
   openHelp: (key: string) => void;
-  openSos: () => void;
   openSettings: () => void;
-  /** 食事の記録（meal を渡すと編集） */
-  openMeal: (target: { date: string; meal?: Meal }) => void;
-  /** よく食べる食事の追加（fav を渡すと編集） */
-  openFavorite: (target: { fav?: Favorite }) => void;
-  go: (tab: Tab, opts?: { gymDay?: GymDay }) => void;
+  go: (tab: Tab) => void;
 }
 
 export const UIContext = createContext<UI>({
   openHelp: () => {},
-  openSos: () => {},
   openSettings: () => {},
-  openMeal: () => {},
-  openFavorite: () => {},
   go: () => {},
 });
 export const useUI = () => useContext(UIContext);
@@ -72,10 +63,6 @@ export function PageHead({ title, help, helpLabel }: { title: string; help?: str
     </div>
   );
 }
-
-export const Tag = ({ tone, children }: { tone: 'good' | 'warn' | 'neutral'; children: ReactNode }) => (
-  <span className={`tag ${tone}`}>{children}</span>
-);
 
 /** 下から出てくるシート（<dialog>） */
 export function Sheet({
@@ -153,7 +140,7 @@ export function ConfirmButton({
   );
 }
 
-/** 選択肢ボタン（Day A/B/C など） */
+/** 選択肢ボタン（ベンチの日／デッドの日 など） */
 export function Seg<T extends string>({
   value,
   options,

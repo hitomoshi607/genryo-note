@@ -1,9 +1,11 @@
-// グラフ（SVG を手書き）。線は 2px、グリッドは実線の細線、タップ・なぞりで値を表示する
+// グラフ（SVG を手書き）。線は 2px、グリッドは細い実線、タップ・なぞりで値を表示する
 import { useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { PLAN_KG_PER_WEEK, avgSeries, fatMass, planLine } from '../lib/calc';
-import { addDays, dayDiff, jDate, jMD, parse, ymd } from '../lib/date';
-import { f1, kg, signed } from '../lib/format';
-import type { AppData, Comp } from '../lib/schema';
+import { SLEEP_TARGET_H } from '../data/plan';
+import { addDays, addMonths, dayDiff, jDate, jMD, parse, ymd } from '../lib/date';
+import { f1, kg } from '../lib/format';
+import type { AppData } from '../lib/schema';
+import { durationMin, hm } from '../lib/sleep';
+import { avgSeries, goalDate, planAt, sortedWeights } from '../lib/weight';
 
 const W = 360;
 
@@ -29,7 +31,7 @@ function useScrub(count: number, xOf: (i: number) => number) {
     e.preventDefault();
   };
   return {
-    sel,
+    sel: sel !== null && sel < count ? sel : null,
     svgProps: {
       ref: svgRef,
       tabIndex: 0,
@@ -47,7 +49,7 @@ function useScrub(count: number, xOf: (i: number) => number) {
 }
 
 function Tooltip({ x, children }: { x: number; children: ReactNode }) {
-  const pct = Math.min(80, Math.max(20, (x / W) * 100));
+  const pct = Math.min(78, Math.max(22, (x / W) * 100));
   return (
     <div className="tip" style={{ left: `${pct}%` }} role="status">
       {children}
@@ -55,38 +57,40 @@ function Tooltip({ x, children }: { x: number; children: ReactNode }) {
   );
 }
 
-const niceStep = (span: number) => (span > 12 ? 2 : span > 5 ? 1 : 0.5);
+const niceStep = (span: number) => (span >= 8 ? 2 : span > 4 ? 1 : 0.5);
 
 /* ---------- 体重 ---------- */
 
 export function WeightChart({ d, today, range }: { d: AppData; today: string; range: 'all' | '4w' }) {
-  const H = 214;
+  const H = 220;
   const L = 34;
-  const R = 14;
+  const R = 12;
   const T = 12;
   const B = 24;
   const clip = useId();
-  const series = useMemo(() => avgSeries(d.weights), [d.weights]);
-  const plan = planLine(d);
-  const goal = d.settings.goalWeight;
+  const s = d.settings;
+  const raw = useMemo(() => sortedWeights(d.weights), [d.weights]);
+  const avg = useMemo(() => avgSeries(d.weights), [d.weights]);
+  const end = goalDate(s);
 
-  let xs: string;
-  let xe: string;
-  if (range === 'all') {
-    xs = [series[0]?.d ?? plan.from.d, plan.from.d].sort()[0];
-    xe = [series[series.length - 1]?.d ?? today, plan.to.d, today].sort().reverse()[0];
-  } else {
-    xs = addDays(today, -27);
-    xe = today;
-  }
+  const xs = range === 'all' ? [raw[0]?.d ?? s.startDate, s.startDate].sort()[0] : addDays(today, -27);
+  const xe = range === 'all' ? [end, today, raw[raw.length - 1]?.d ?? today].sort().reverse()[0] : today;
   const span = Math.max(7, dayDiff(xs, xe));
-  const vis = series.filter((p) => p.d >= xs && p.d <= xe);
-  const ys = vis.flatMap((p) => [p.w, p.a]);
-  if (range === 'all') ys.push(plan.from.w, goal);
-  if (!ys.length) ys.push(plan.from.w);
+  const vis = raw.filter((p) => p.d >= xs && p.d <= xe);
+  const visAvg = avg.filter((p) => p.d >= xs && p.d <= xe);
+
+  // 計画線は毎月の区切りで折れる
+  const planPts = [xs];
+  for (let n = 1; addMonths(s.startDate, n) < xe; n++) if (addMonths(s.startDate, n) > xs) planPts.push(addMonths(s.startDate, n));
+  if (s.startDate > xs && s.startDate < xe) planPts.push(s.startDate);
+  planPts.push(xe);
+  planPts.sort();
+  const plan = planPts.map((p) => ({ d: p, w: planAt(s, p) }));
+
+  const ys = [...vis.map((p) => p.w), ...visAvg.map((p) => p.w), ...plan.map((p) => p.w)];
+  if (range === 'all') ys.push(s.goalWeight);
   let yMin = Math.min(...ys);
   let yMax = Math.max(...ys);
-  if (range === '4w' && Math.abs(goal - yMin) < 1.5) yMin = Math.min(yMin, goal);
   const pad = Math.max(0.4, (yMax - yMin) * 0.08);
   const step = niceStep(yMax - yMin);
   yMin = Math.floor((yMin - pad) / step) * step;
@@ -98,32 +102,27 @@ export function WeightChart({ d, today, range }: { d: AppData; today: string; ra
   const yTicks: number[] = [];
   for (let v = yMin; v <= yMax + 1e-9; v += step) yTicks.push(Math.round(v * 10) / 10);
 
-  const xTicks: { x: number; label: string }[] = [];
+  const xTicks: { x: number; label: string; end?: boolean }[] = [];
   if (range === 'all') {
-    const s = parse(xs);
-    for (let m = new Date(s.getFullYear(), s.getMonth() + 1, 1); ymd(m) <= xe; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+    const st = parse(xs);
+    for (let m = new Date(st.getFullYear(), st.getMonth() + 1, 1); ymd(m) <= xe; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
       xTicks.push({ x: X(ymd(m)), label: `${m.getMonth() + 1}月` });
     }
   } else {
     for (let i = 0; i <= 3; i++) {
-      const dd = addDays(xs, i * 7);
-      xTicks.push({ x: X(dd), label: jMD(dd) });
+      const dd = addDays(xs, i * 9);
+      xTicks.push({ x: X(dd), label: jMD(dd), end: i === 3 });
     }
   }
 
-  const { sel, svgProps } = useScrub(vis.length, (i) => X(vis[i].d));
-  const last = vis[vis.length - 1];
-  const selP = sel !== null ? vis[sel] : null;
-  const planAt = (date: string) => Math.max(goal, plan.from.w - (dayDiff(plan.from.d, date) / 7) * PLAN_KG_PER_WEEK);
+  const { sel, svgProps } = useScrub(visAvg.length, (i) => X(visAvg[i].d));
+  const last = visAvg[visAvg.length - 1];
+  const selP = sel !== null ? visAvg[sel] : null;
+  const goalIn = s.goalWeight >= yMin && s.goalWeight <= yMax;
 
   return (
     <div className="chart">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`体重の推移。最新の7日平均 ${last ? f1(last.a) : '—'}kg、目標 ${kg(goal)}kg。左右キーで日ごとの値`}
-        {...svgProps}
-      >
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`体重の推移。最新の7日平均 ${last ? f1(last.w) : '—'}kg、目標 ${kg(s.goalWeight)}kg。左右キーで日ごとの値`} {...svgProps}>
         <defs>
           <clipPath id={clip}>
             <rect x={L} y={T - 6} width={W - L - R + 6} height={H - T - B + 12} />
@@ -138,44 +137,29 @@ export function WeightChart({ d, today, range }: { d: AppData; today: string; ra
           </g>
         ))}
         {xTicks.map((t) => (
-          <text key={t.label} className="axis" x={t.x} y={H - 7} textAnchor="middle">
+          <text key={t.label} className="axis" x={t.x} y={H - 7} textAnchor={t.end ? 'end' : 'middle'}>
             {t.label}
           </text>
         ))}
         <g clipPath={`url(#${clip})`}>
-          <line
-            className="plan"
-            x1={X(range === 'all' ? plan.from.d : xs)}
-            y1={Y(range === 'all' ? plan.from.w : planAt(xs))}
-            x2={X(range === 'all' ? plan.to.d : xe)}
-            y2={Y(range === 'all' ? plan.to.w : planAt(xe))}
-          />
-          {goal >= yMin && goal <= yMax && (
+          <polyline className="plan" points={plan.map((p) => `${X(p.d)},${Y(p.w)}`).join(' ')} />
+          {goalIn && (
             <>
-              <line className="goal" x1={L} x2={W - R} y1={Y(goal)} y2={Y(goal)} />
-              <text className="goal-t" x={L + 4} y={Y(goal) > H - B - 16 ? Y(goal) - 5 : Y(goal) + 13} textAnchor="start">
-                目標 {kg(goal)}kg
+              <line className="goal" x1={L} x2={W - R} y1={Y(s.goalWeight)} y2={Y(s.goalWeight)} />
+              <text className="goal-t" x={L + 4} y={Y(s.goalWeight) - 5} textAnchor="start">
+                目標 {kg(s.goalWeight)}
               </text>
             </>
           )}
           {vis.map((p) => (
             <circle key={p.d} className="raw" cx={X(p.d)} cy={Y(p.w)} r={2.4} />
           ))}
-          {vis.length >= 2 && <polyline className="avg" points={vis.map((p) => `${X(p.d)},${Y(p.a)}`).join(' ')} />}
-          {last && (
-            <>
-              <circle className="end" cx={X(last.d)} cy={Y(last.a)} r={4.5} />
-              {!selP && (
-                <text className="end-t" x={X(last.d) + (X(last.d) > W - 70 ? -8 : 8)} y={Y(last.a) - 8} textAnchor={X(last.d) > W - 70 ? 'end' : 'start'}>
-                  {f1(last.a)}
-                </text>
-              )}
-            </>
-          )}
+          {visAvg.length >= 2 && <polyline className="avg" points={visAvg.map((p) => `${X(p.d)},${Y(p.w)}`).join(' ')} />}
+          {last && <circle className="end" cx={X(last.d)} cy={Y(last.w)} r={4.5} />}
           {selP && (
             <>
               <line className="cross" x1={X(selP.d)} x2={X(selP.d)} y1={T} y2={H - B} />
-              <circle className="end" cx={X(selP.d)} cy={Y(selP.a)} r={4.5} />
+              <circle className="end" cx={X(selP.d)} cy={Y(selP.w)} r={4.5} />
             </>
           )}
         </g>
@@ -185,11 +169,15 @@ export function WeightChart({ d, today, range }: { d: AppData; today: string; ra
           <span className="tip-d">{jDate(selP.d)}</span>
           <span className="tip-r">
             <i className="key-line avg" />
-            <b className="n">{f1(selP.a)}kg</b> 7日平均
+            <b className="n">{f1(selP.w)}</b> 7日平均
           </span>
           <span className="tip-r">
             <i className="key-dot raw" />
-            <b className="n">{f1(selP.w)}kg</b> その日
+            <b className="n">{f1(d.weights[selP.d])}</b> その日
+          </span>
+          <span className="tip-r">
+            <i className="key-line plan" />
+            <b className="n">{f1(planAt(s, selP.d))}</b> 計画
           </span>
         </Tooltip>
       )}
@@ -200,96 +188,91 @@ export function WeightChart({ d, today, range }: { d: AppData; today: string; ra
         </span>
         <span>
           <i className="key-dot raw" />
-          毎日の値
+          その日
         </span>
         <span>
           <i className="key-line plan" />
-          計画（週0.5kg）
-        </span>
-        <span>
-          <i className="key-line goal" />
-          目標
+          計画（毎月 −{kg(s.perMonth)}kg）
         </span>
       </div>
     </div>
   );
 }
 
-/* ---------- 体組成の推移（初回からの増減 kg） ---------- */
+/* ---------- 睡眠 ---------- */
 
-const COMP_SERIES = [
-  { key: 'm', label: '筋肉量', cls: 'lean', val: (c: Comp) => c.m },
-  { key: 'f', label: '脂肪量', cls: 'fat', val: (c: Comp) => fatMass(c) },
-  { key: 'w', label: '体重', cls: 'weight', val: (c: Comp) => c.w },
-] as const;
-
-export function CompChart({ comps }: { comps: Comp[] }) {
-  const H = 190;
-  const L = 34;
-  const R = 14;
-  const T = 12;
-  const B = 24;
-  const first = comps[0];
-  const lastC = comps[comps.length - 1];
-  const span = Math.max(1, dayDiff(first.d, lastC.d));
-  const deltas = comps.map((c) => COMP_SERIES.map((s) => s.val(c) - s.val(first)));
-  const all = deltas.flat();
-  let yMin = Math.min(0, ...all);
-  let yMax = Math.max(0, ...all);
-  const step = niceStep(yMax - yMin) >= 1 ? niceStep(yMax - yMin) : 0.5;
-  yMin = Math.floor((yMin - 0.3) / step) * step;
-  yMax = Math.ceil((yMax + 0.3) / step) * step;
-  const X = (date: string) => L + 6 + ((W - L - R - 12) * dayDiff(first.d, date)) / span;
-  const Y = (v: number) => T + ((H - T - B) * (yMax - v)) / (yMax - yMin);
-  const yTicks: number[] = [];
-  for (let v = yMin; v <= yMax + 1e-9; v += step) yTicks.push(Math.round(v * 10) / 10);
-  const { sel, svgProps } = useScrub(comps.length, (i) => X(comps[i].d));
+export function SleepChart({ d, today, days = 14 }: { d: AppData; today: string; days?: number }) {
+  const H = 170;
+  const L = 28;
+  const R = 8;
+  const T = 10;
+  const B = 22;
+  const dates = Array.from({ length: days }, (_, i) => addDays(today, i - days + 1));
+  const mins = dates.map((dt) => (d.sleep[dt] ? durationMin(d.sleep[dt]) : null));
+  const maxH = Math.max(9, Math.ceil(Math.max(0, ...mins.map((m) => (m ?? 0) / 60))));
+  const bw = (W - L - R) / days;
+  const X = (i: number) => L + bw * i + bw / 2;
+  const Y = (h: number) => T + ((H - T - B) * (maxH - h)) / maxH;
+  const { sel, svgProps } = useScrub(days, X);
+  const ticks = [0, 3, 6, 9].filter((h) => h <= maxH);
 
   return (
     <div className="chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="体組成の推移（初回からの増減）。左右キーで測定ごとの値" {...svgProps}>
-        {yTicks.map((v) => (
-          <g key={v}>
-            <line className={v === 0 ? 'grid zero' : 'grid'} x1={L} x2={W - R} y1={Y(v)} y2={Y(v)} />
-            <text className="axis" x={L - 6} y={Y(v) + 3.5} textAnchor="end">
-              {v > 0 ? `+${v}` : v}
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`直近${days}日の睡眠時間。左右キーで日ごとの値`} {...svgProps}>
+        {ticks.map((h) => (
+          <g key={h}>
+            <line className="grid" x1={L} x2={W - R} y1={Y(h)} y2={Y(h)} />
+            <text className="axis" x={L - 6} y={Y(h) + 3.5} textAnchor="end">
+              {h}h
             </text>
           </g>
         ))}
-        <text className="axis" x={X(first.d)} y={H - 7} textAnchor="start">
-          {jMD(first.d)}
-        </text>
-        <text className="axis" x={X(lastC.d)} y={H - 7} textAnchor="end">
-          {jMD(lastC.d)}
-        </text>
-        {sel !== null && <line className="cross" x1={X(comps[sel].d)} x2={X(comps[sel].d)} y1={T} y2={H - B} />}
-        {COMP_SERIES.map((s, si) => (
-          <g key={s.key} className={`s-${s.cls}`}>
-            <polyline className="sline" points={comps.map((c, i) => `${X(c.d)},${Y(deltas[i][si])}`).join(' ')} />
-            {comps.map((c, i) => (
-              <circle key={c.d} className="sdot" cx={X(c.d)} cy={Y(deltas[i][si])} r={4} />
-            ))}
-          </g>
-        ))}
+        {mins.map((m, i) =>
+          m === null ? null : (
+            <rect
+              key={dates[i]}
+              className={`sbar${m < SLEEP_TARGET_H * 60 ? ' short' : ''}${sel === i ? ' on' : ''}`}
+              x={X(i) - bw * 0.32}
+              y={Y(m / 60)}
+              width={bw * 0.64}
+              height={Math.max(1, Y(0) - Y(m / 60))}
+              rx={3}
+            />
+          ),
+        )}
+        <line className="target" x1={L} x2={W - R} y1={Y(SLEEP_TARGET_H)} y2={Y(SLEEP_TARGET_H)} />
+        {dates.map((dt, i) =>
+          i % 2 === (days - 1) % 2 ? (
+            <text key={dt} className="axis" x={X(i)} y={H - 6} textAnchor="middle">
+              {jMD(dt)}
+            </text>
+          ) : null,
+        )}
       </svg>
       {sel !== null && (
-        <Tooltip x={X(comps[sel].d)}>
-          <span className="tip-d">{jDate(comps[sel].d)}（初回から）</span>
-          {COMP_SERIES.map((s, si) => (
-            <span className="tip-r" key={s.key}>
-              <i className={`key-line ${s.cls}`} />
-              <b className="n">{signed(deltas[sel][si])}kg</b> {s.label}
+        <Tooltip x={X(sel)}>
+          <span className="tip-d">{jDate(dates[sel])}</span>
+          {d.sleep[dates[sel]] ? (
+            <span className="tip-r">
+              <b className="n">{hm(mins[sel]!)}</b>
+              <span className="n">
+                {d.sleep[dates[sel]].bed}〜{d.sleep[dates[sel]].wake}
+              </span>
             </span>
-          ))}
+          ) : (
+            <span className="tip-r">記録なし</span>
+          )}
         </Tooltip>
       )}
       <div className="legend">
-        {COMP_SERIES.map((s) => (
-          <span key={s.key}>
-            <i className={`key-line ${s.cls}`} />
-            {s.label}
-          </span>
-        ))}
+        <span>
+          <i className="key-box" />
+          睡眠時間
+        </span>
+        <span>
+          <i className="key-line target" />
+          目安 {SLEEP_TARGET_H}時間
+        </span>
       </div>
     </div>
   );

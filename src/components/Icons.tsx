@@ -13,7 +13,7 @@ export const IconToday = () => (
   </Svg>
 );
 
-export const IconBody = () => (
+export const IconWeight = () => (
   <Svg>
     <path d="M4 4v16h16" />
     <path d="M7.5 14.5l3.5-3.5 3 2.5 5-6" />
@@ -26,14 +26,7 @@ export const IconGym = () => (
   </Svg>
 );
 
-export const IconFood = () => (
-  <Svg>
-    <path d="M3 12h18a9 8 0 0 1-18 0z" />
-    <path d="M9 8.5c0-1.4 1-1.8 1-3.2M14 8.5c0-1.4 1-1.8 1-3.2" />
-  </Svg>
-);
-
-export const IconHabit = () => (
+export const IconSleep = () => (
   <Svg>
     <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />
   </Svg>
@@ -57,11 +50,4 @@ export const IconCheck = () => (
   <svg className="ck-mark" viewBox="0 0 20 20" aria-hidden="true">
     <path d="M4 10.5l4 4 8-9" />
   </svg>
-);
-
-export const IconCamera = () => (
-  <Svg size={20}>
-    <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
-    <circle cx="12" cy="13" r="3.5" />
-  </Svg>
 );

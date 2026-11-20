@@ -4,14 +4,14 @@
 
 ## 守ること
 
-- SPEC.md「3. 計算ロジック」の式と、初回測定値（src/data/seed.ts）は実測に基づくので変えない。
-  変更したら `npm test` で src/lib/calc.test.ts の初期値が通ることを確認する。
-- 筋トレメニューは src/data/plan.ts の EQUIPMENT（いつものジムの設備）にあるマシンだけを使う。
-- 画面には数字とやることだけを置き、説明文は「?」（src/help.tsx）の中に入れる。タブは5つまで。
-- 保存データの形は試作版（localStorage キー genryo-note-v2）と互換。項目を足すときは src/lib/schema.ts の normalize も更新する。
+- 記録するのは体重・睡眠・ジムの3つ。黒ベースで、片手で速く入れられることを優先する。
+- 目標（開始 2026-11-20・82kg、毎月 −2kg、70kg）と計画線の計算は src/lib/weight.ts。
+  変えたら `npm test` で src/lib/weight.test.ts の区切り（82 / 80 / 78 / 76 / 74 / 72 / 70）を確認する。
+- 筋トレメニューは src/data/plan.ts の EQUIPMENT（いつものジムの設備）にあるものだけを使う。
+  どの日も4種目で、脚を毎回入れ、ベンチプレスかデッドリフトのどちらかを入れる（src/data/plan.test.ts で確認）。
+- 画面には数字とやることだけを置き、説明文は「?」（src/help.tsx）の中に入れる。タブは4つ。
+- 保存先は localStorage の `genryo-note-v3`。項目を足すときは src/lib/schema.ts の normalize も更新する。
 - 医療的な判断はしない。
-- 写真からのカロリー推定（src/lib/ai.ts）の API キーは localStorage の `genryo-note-ai` にだけ置く。
-  記録データ（genryo-note-v2）・バックアップ JSON・コード・リポジトリに入れない。テストは偽の fetch で行い、実際の API は呼ばない。
 
 ## コマンド
 

@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
-import { HALT, SOS_STEPS, T_OPT } from '../data/plan';
+import { pace } from '../data/plan';
 import { getHelp } from '../help';
-import { importData, logSos, markBackup, resetAll, saveSettings } from '../lib/actions';
-import { copyBackup, exportBackup } from '../lib/backup';
-import { AI_MODELS, AiError, DEFAULT_MODEL, YEN_PER_USD, clearAi, loadAi, saveAi, verifyAi, type AiModel, type AiSettings } from '../lib/ai';
-import { WD, jDate, todayStr } from '../lib/date';
+import { importData, resetAll, saveSettings } from '../lib/actions';
+import { exportBackup, exportOld, type ExportResult } from '../lib/backup';
+import { jMD, WD } from '../lib/date';
 import { kg } from '../lib/format';
-import { DAY_TYPES, normalize, summarize, type AppData, type DayType, type Settings, type Theme } from '../lib/schema';
-import { lastSaveFailed, useData } from '../lib/store';
-import { mmss, sosTimer, unlockAudio, useSecondsLeft, useTimer, beep } from '../lib/timer';
+import { KIND_LABEL } from '../lib/gym';
+import { DAY_KINDS, isOldVersion, normalize, summarize, type AppData, type Settings } from '../lib/schema';
+import { deleteOldData, lastSaveFailed, oldRecord, useData } from '../lib/store';
 import { useToday } from '../lib/useToday';
-import { ConfirmButton, HelpButton, Sheet } from '../ui';
+import { goalDate, monthsToGoal } from '../lib/weight';
+import { ConfirmButton, Sheet } from '../ui';
 
 /* ---------- ヘルプ ---------- */
 
@@ -26,364 +26,181 @@ export function HelpSheet({ k, onClose }: { k: string | null; onClose: () => voi
   );
 }
 
-/* ---------- ストレス食い対策 ---------- */
-
-export function SosSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  return (
-    <Sheet open={open} onClose={onClose} title="10分だけ待ってみよう">
-      <SosBody />
-    </Sheet>
-  );
-}
-
-function SosBody() {
-  const today = useToday();
-  const [why, setWhy] = useState<string | null>(null);
-  const [done, setDone] = useState('');
-  const t = useTimer(sosTimer);
-  const left = useSecondsLeft(t);
-  const finished = !!t && left === 0;
-  const rang = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (t && finished && rang.current !== t.endsAt) {
-      rang.current = t.endsAt;
-      beep(2);
-    }
-  }, [t, finished]);
-
-  return (
-    <>
-      <p className="muted sm">今の状態に近いのは？</p>
-      <div className="halt">
-        {HALT.map((h) => (
-          <button key={h.id} type="button" aria-pressed={why === h.id} onClick={() => setWhy(h.id)}>
-            {h.label}
-          </button>
-        ))}
-      </div>
-      {why && <p className="hans">{HALT.find((h) => h.id === why)?.advice}</p>}
-      <div className="timer">
-        <span className="t n">{t ? mmss(left) : '10:00'}</span>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => {
-            unlockAudio();
-            sosTimer.start(600, 'sos');
-          }}
-        >
-          {t ? 'やり直す' : 'タイマー開始'}
-        </button>
-      </div>
-      <p className="tmsg">
-        {finished ? '10分たちました。まだ食べたいなら1つだけお皿に出して落ち着いて。' : t ? 'この間に、下のどれか1つを。' : ''}
-      </p>
-      <ol className="steps">
-        {SOS_STEPS.map((s) => (
-          <li key={s}>{s}</li>
-        ))}
-      </ol>
-      <div className="sos-a">
-        <button
-          type="button"
-          className="btn"
-          onClick={() => {
-            logSos(today, 'held');
-            sosTimer.stop();
-            setDone('ナイス。乗り切った記録を残しました。');
-          }}
-        >
-          乗り切った
-        </button>
-        <button
-          type="button"
-          className="btn ghost"
-          onClick={() => {
-            logSos(today, 'ate');
-            sosTimer.stop();
-            setDone('記録しました。責めなくてOK。次の食事をいつも通りに。');
-          }}
-        >
-          食べた
-        </button>
-      </div>
-      <p className="sdone" role="status">
-        {done}
-      </p>
-    </>
-  );
-}
-
 /* ---------- 設定 ---------- */
 
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [view, setView] = useState<'main' | 'import'>('main');
   return (
-    <Sheet
-      open={open}
-      onClose={() => {
-        setView('main');
-        onClose();
-      }}
-      title={view === 'main' ? '設定' : 'データを読み込む'}
-    >
-      {view === 'main' ? <SettingsBody onClose={onClose} onImport={() => setView('import')} /> : <ImportBody onDone={() => setView('main')} />}
+    <Sheet open={open} onClose={onClose} title="設定">
+      <SettingsBody />
     </Sheet>
   );
 }
 
-function SettingsBody({ onClose, onImport }: { onClose: () => void; onImport: () => void }) {
+const exportMsg: Record<ExportResult, string> = {
+  shared: '書き出しました。',
+  downloaded: 'ファイルを保存しました。',
+  cancelled: '',
+};
+
+function SettingsBody() {
   const d = useData();
-  const [s, setS] = useState<Settings>(d.settings);
-  const [nums, setNums] = useState({ age: String(s.age), height: String(s.height), goal: kg(s.goalWeight) });
+  const [importing, setImporting] = useState(false);
   const [msg, setMsg] = useState('');
-  const [dataMsg, setDataMsg] = useState('');
-
-  const save = () => {
-    const age = parseInt(nums.age, 10);
-    const height = parseFloat(nums.height);
-    const goal = parseFloat(nums.goal);
-    if (!(age >= 10 && age <= 100)) return setMsg('年齢を確認してください。');
-    if (!(height >= 100 && height <= 250)) return setMsg('身長を確認してください。');
-    if (!(goal >= 30 && goal <= 200)) return setMsg('目標体重を確認してください。');
-    saveSettings({ ...s, age, height, goalWeight: Math.round(goal * 10) / 10 });
-    onClose();
-  };
-
-  const doExport = async () => {
-    const r = await exportBackup(d);
-    if (r === 'cancelled') return;
-    markBackup();
-    setDataMsg(r === 'shared' ? '書き出しました。' : 'ダウンロードしました。');
-  };
+  const [old, setOld] = useState(oldRecord);
 
   return (
-    <>
-      <div className="fg">
-        <label>
-          年齢
-          <input className="inp n" type="number" inputMode="numeric" value={nums.age} onChange={(e) => setNums({ ...nums, age: e.target.value })} />
-        </label>
-        <label>
-          身長（cm）
-          <input className="inp n" type="number" inputMode="decimal" step="0.1" value={nums.height} onChange={(e) => setNums({ ...nums, height: e.target.value })} />
-        </label>
-        <label>
-          目標体重（kg）
-          <input className="inp n" type="number" inputMode="decimal" step="0.1" value={nums.goal} onChange={(e) => setNums({ ...nums, goal: e.target.value })} />
-        </label>
-        <label>
-          画面の色
-          <select className="inp" value={s.theme} onChange={(e) => setS({ ...s, theme: e.target.value as Theme })}>
-            <option value="auto">端末に合わせる</option>
-            <option value="light">明るい</option>
-            <option value="dark">暗い</option>
-          </select>
-        </label>
-        <label>
-          寝る時刻
-          <input className="inp n" type="time" value={s.bed} onChange={(e) => e.target.value && setS({ ...s, bed: e.target.value })} />
-        </label>
-        <label>
-          起きる時刻
-          <input className="inp n" type="time" value={s.wake} onChange={(e) => e.target.value && setS({ ...s, wake: e.target.value })} />
-        </label>
-      </div>
+    <div className="settings">
+      {lastSaveFailed() && <p className="hint err">端末に保存できませんでした。空き容量を確認してください。</p>}
 
-      <p className="fl">曜日ごとの予定</p>
-      <div className="sched">
-        {['1', '2', '3', '4', '5', '6', '0'].map((k) => (
-          <label key={k}>
-            {WD[Number(k)]}
-            <select
-              className="inp"
-              value={s.schedule[k]}
-              aria-label={`${WD[Number(k)]}曜日の予定`}
-              onChange={(e) => setS({ ...s, schedule: { ...s.schedule, [k]: e.target.value as DayType } })}
-            >
-              {DAY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {T_OPT[t]}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-      </div>
-      <p className="hint err">{msg}</p>
-      <button type="button" className="btn wide" onClick={save}>
-        保存
-      </button>
+      <section>
+        <h3>目標</h3>
+        <GoalForm key={JSON.stringify(d.settings)} s={d.settings} />
+      </section>
 
-      <div className="sect">
-        <div className="sect-h">
-          <h3>データ</h3>
-          <HelpButton k="backup" label="バックアップについて" />
-        </div>
-        <p className="sm muted">最後のバックアップ：{d.backupAt ? jDate(d.backupAt.slice(0, 10)) : 'まだありません'}</p>
-        {lastSaveFailed() && <p className="hint err">保存に失敗しています。空き容量を確認して、書き出しておいてください。</p>}
+      <section>
+        <h3>曜日ごとの予定</h3>
+        <WeekForm s={d.settings} />
+      </section>
+
+      <section>
+        <h3>有酸素（傾斜ウォーキング）</h3>
+        <CardioForm key={JSON.stringify(d.settings.cardio)} s={d.settings} />
+      </section>
+
+      <section>
+        <h3>バックアップ</h3>
+        <p className="sub">記録はこの iPhone の中だけにあります。月に1回くらい書き出して「ファイル」に保存してください。</p>
         <div className="btns">
-          <button type="button" className="btn" onClick={() => void doExport()}>
-            書き出す（JSON）
+          <button type="button" className="btn ghost" onClick={() => void exportBackup(d).then((r) => setMsg(exportMsg[r]))}>
+            書き出す
           </button>
-          <button
-            type="button"
-            className="btn ghost"
-            onClick={() =>
-              void copyBackup(d).then(
-                () => setDataMsg('コピーしました。'),
-                () => setDataMsg('コピーできませんでした。'),
-              )
-            }
-          >
-            コピー
-          </button>
-          <button type="button" className="btn ghost" onClick={onImport}>
+          <button type="button" className="btn ghost" aria-expanded={importing} onClick={() => setImporting(!importing)}>
             読み込む
           </button>
         </div>
-        <p className="hint">{dataMsg}</p>
-      </div>
+        {msg && <p className="sub ok-t">{msg}</p>}
+        {importing && <ImportBody onDone={() => setImporting(false)} />}
+      </section>
 
-      <AiSection d={d} />
+      {old && (
+        <section>
+          <h3>前の版の記録</h3>
+          <p className="sub">作り直す前の記録（体重・食事・写真推定の API キーなど）がこの iPhone に残っています。新しい版では使いません。</p>
+          <div className="btns">
+            <button type="button" className="btn ghost" onClick={() => void exportOld(old)}>
+              書き出す
+            </button>
+            <ConfirmButton
+              className="btn danger"
+              label="端末から消す"
+              armedLabel="もう一度押すと消す"
+              onConfirm={() => void deleteOldData().then(() => setOld(null))}
+            />
+          </div>
+        </section>
+      )}
 
-      <div className="sect">
-        <div className="sect-h">
-          <h3>朝のリマインダー</h3>
-          <HelpButton k="reminder" label="設定のしかた" />
-        </div>
-        <p className="sm muted">iPhone の「リマインダー」で毎朝の通知を設定します。</p>
-      </div>
+      <section>
+        <h3>記録をすべて消す</h3>
+        <p className="sub">体重・睡眠・ジムの記録を消します。目標と曜日の設定は残ります。</p>
+        <ConfirmButton className="btn danger" label="すべて消す" armedLabel="もう一度押すと消す" onConfirm={resetAll} />
+      </section>
+    </div>
+  );
+}
 
-      <div className="sect">
-        <div className="sect-h">
-          <h3>このプランについて</h3>
-          <HelpButton k="about" label="このプランについて" />
-        </div>
-        <ConfirmButton
-          className="btn danger sm"
-          label="記録をすべて消す"
-          armedLabel="もう一度押すと消えます"
-          onConfirm={() => {
-            resetAll();
-            onClose();
-          }}
-        />
-        <p className="sm muted mt">設定と初回の体組成は残ります。</p>
-      </div>
+function NumField({ label, unit, value, onChange, step = '0.1' }: { label: string; unit: string; value: string; onChange: (v: string) => void; step?: string }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <span className="field-in">
+        <input className="n" type="number" inputMode="decimal" step={step} value={value} onChange={(e) => onChange(e.target.value)} />
+        <small>{unit}</small>
+      </span>
+    </label>
+  );
+}
+
+function GoalForm({ s }: { s: Settings }) {
+  const [f, setF] = useState({ startDate: s.startDate, startWeight: kg(s.startWeight), goalWeight: kg(s.goalWeight), perMonth: kg(s.perMonth) });
+  const [err, setErr] = useState('');
+  const next: Settings = { ...s, startDate: f.startDate, startWeight: +f.startWeight, goalWeight: +f.goalWeight, perMonth: +f.perMonth };
+  const valid = !!f.startDate && next.startWeight >= 30 && next.goalWeight >= 30 && next.goalWeight < next.startWeight && next.perMonth >= 0.5 && next.perMonth <= 5;
+
+  return (
+    <>
+      <label className="field">
+        <span>開始日</span>
+        <input className="n" type="date" value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value })} />
+      </label>
+      <NumField label="開始時の体重" unit="kg" value={f.startWeight} onChange={(v) => setF({ ...f, startWeight: v })} />
+      <NumField label="目標の体重" unit="kg" value={f.goalWeight} onChange={(v) => setF({ ...f, goalWeight: v })} />
+      <NumField label="1か月に減らす" unit="kg" value={f.perMonth} onChange={(v) => setF({ ...f, perMonth: v })} />
+      <p className="sub n">{valid ? `${monthsToGoal(next)}か月で達成・${jMD(goalDate(next))}` : '目標は開始時より軽く、1か月 0.5〜5kg にしてください。'}</p>
+      {err && <p className="hint err">{err}</p>}
+      <button
+        type="button"
+        className="btn wide"
+        disabled={!valid}
+        onClick={() => {
+          if (!valid) return setErr('入力を確認してください。');
+          saveSettings(next);
+          setErr('');
+        }}
+      >
+        保存
+      </button>
     </>
   );
 }
 
-/** 写真からのカロリー推定（Claude API）の設定。キーはこの端末にだけ保存する */
-function AiSection({ d }: { d: AppData }) {
-  const [saved, setSaved] = useState(loadAi);
-  const [key, setKey] = useState('');
-  const [model, setModel] = useState<AiModel>(saved?.model ?? DEFAULT_MODEL);
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const month = todayStr().slice(0, 7);
-  const usd = Object.entries(d.meals)
-    .filter(([date]) => date.startsWith(month))
-    .flatMap(([, list]) => list)
-    .reduce((a, m) => a + (m.ai?.usd ?? 0), 0);
-
-  const check = async (s: AiSettings) => {
-    setBusy(true);
-    setMsg('確認中…');
-    try {
-      await verifyAi(s);
-      setMsg('使えます。食事タブの「食事を記録」から写真で推定できます。');
-    } catch (e) {
-      setMsg(e instanceof AiError ? e.message : '確認できませんでした。');
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function WeekForm({ s }: { s: Settings }) {
+  // 月曜から並べる
+  const order = [1, 2, 3, 4, 5, 6, 0];
   return (
-    <div className="sect">
-      <div className="sect-h">
-        <h3>写真からカロリー推定（AI）</h3>
-        <HelpButton k="ai-setup" label="API キーの取り方" />
-      </div>
-      {saved ? (
-        <>
-          <p className="sm muted">
-            API キー登録済み（…{saved.apiKey.slice(-4)}）・今月の推定費用 約{Math.round(usd * YEN_PER_USD)}円
-          </p>
-          <label className="fl-inline">
-            モデル
-            <select
-              className="inp"
-              value={model}
-              onChange={(e) => {
-                const m = e.target.value as AiModel;
-                setModel(m);
-                const next = { ...saved, model: m };
-                saveAi(next);
-                setSaved(next);
-                setMsg('');
-              }}
-            >
-              {AI_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="btns">
-            <button type="button" className="btn ghost sm" disabled={busy} onClick={() => void check(saved)}>
-              接続を確認
-            </button>
-            <ConfirmButton
-              className="btn danger sm"
-              label="キーを削除"
-              armedLabel="もう一度で削除"
-              onConfirm={() => {
-                clearAi();
-                setSaved(null);
-                setMsg('キーを削除しました。');
-              }}
-            />
+    <ul className="week-form">
+      {order.map((i) => (
+        <li key={i}>
+          <span className="wd">{WD[i]}</span>
+          <div className="mini-seg" role="radiogroup" aria-label={`${WD[i]}曜日の予定`}>
+            {DAY_KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={s.week[i] === k}
+                onClick={() => {
+                  const week = [...s.week];
+                  week[i] = k;
+                  saveSettings({ ...s, week });
+                }}
+              >
+                {KIND_LABEL[k]}
+              </button>
+            ))}
           </div>
-        </>
-      ) : (
-        <>
-          <p className="sm muted">Anthropic Console で作った API キーを貼り付けます。キーはこの端末の中だけに保存され、バックアップにも含まれません。</p>
-          <input
-            className="inp"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="sk-ant-…"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            aria-label="Claude API キー"
-          />
-          <button
-            type="button"
-            className="btn sm mt"
-            disabled={busy || !key.trim()}
-            onClick={() => {
-              const s = { apiKey: key.trim(), model };
-              saveAi(s);
-              setSaved(s);
-              setKey('');
-              void check(s);
-            }}
-          >
-            保存して確認
-          </button>
-        </>
-      )}
-      <p className="hint" role="status">
-        {msg}
-      </p>
-    </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CardioForm({ s }: { s: Settings }) {
+  const c = s.cardio;
+  const [f, setF] = useState({ incline: kg(c.incline), speed: kg(c.speed), cardioMin: String(c.cardioMin), liftMin: String(c.liftMin) });
+  const next = { incline: +f.incline, speed: +f.speed, cardioMin: Math.round(+f.cardioMin), liftMin: Math.round(+f.liftMin) };
+  const valid = next.incline >= 0 && next.incline <= 30 && next.speed >= 1 && next.speed <= 20 && next.cardioMin >= 1 && next.liftMin >= 0;
+  return (
+    <>
+      <NumField label="傾斜" unit="%" value={f.incline} onChange={(v) => setF({ ...f, incline: v })} step="0.5" />
+      <NumField label="速さ" unit="km/h" value={f.speed} onChange={(v) => setF({ ...f, speed: v })} />
+      <p className="sub n">1km {pace(next.speed)}</p>
+      <NumField label="有酸素の日" unit="分" value={f.cardioMin} onChange={(v) => setF({ ...f, cardioMin: v })} step="1" />
+      <NumField label="筋トレのあと" unit="分" value={f.liftMin} onChange={(v) => setF({ ...f, liftMin: v })} step="1" />
+      <button type="button" className="btn wide" disabled={!valid} onClick={() => saveSettings({ ...s, cardio: next })}>
+        保存
+      </button>
+    </>
   );
 }
 
@@ -391,23 +208,26 @@ function ImportBody({ onDone }: { onDone: () => void }) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<AppData | null>(null);
   const [err, setErr] = useState('');
-  const [done, setDone] = useState('');
 
-  const parse = (raw: string) => {
-    setDone('');
+  const read = (raw: string) => {
     try {
-      setParsed(normalize(JSON.parse(raw)));
+      const x: unknown = JSON.parse(raw);
+      if (isOldVersion(x)) {
+        setParsed(null);
+        setErr('作り直す前の版のバックアップは読み込めません。');
+        return;
+      }
+      setParsed(normalize(x));
       setErr('');
-    } catch (e) {
+    } catch {
       setParsed(null);
-      setErr(e instanceof SyntaxError ? 'JSON として読めませんでした。' : (e as Error).message);
+      setErr('JSON として読めませんでした。');
     }
   };
 
   const sum = parsed ? summarize(parsed) : null;
   return (
-    <>
-      <p className="sm muted">試作版やバックアップの JSON を読み込みます。ファイルを選ぶか、中身を貼り付けてください。</p>
+    <div className="import">
       <label className="btn ghost wide file-btn">
         ファイルを選ぶ
         <input
@@ -416,23 +236,19 @@ function ImportBody({ onDone }: { onDone: () => void }) {
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void f.text().then(parse);
+            if (f) void f.text().then(read);
           }}
         />
       </label>
-      <textarea className="inp ta" rows={5} placeholder="ここに貼り付け" value={text} onChange={(e) => setText(e.target.value)} />
-      <button type="button" className="btn ghost wide" disabled={!text.trim()} onClick={() => parse(text)}>
+      <textarea className="inp ta" rows={4} placeholder="または中身を貼り付け" value={text} onChange={(e) => setText(e.target.value)} />
+      <button type="button" className="btn ghost wide" disabled={!text.trim()} onClick={() => read(text)}>
         貼り付けた内容を確認
       </button>
       {err && <p className="hint err">{err}</p>}
       {sum && (
-        <div className="box n">
-          <b>読み込む内容</b>
-          <br />
-          体重 {sum.weights}件{sum.from ? `（${sum.from} 〜 ${sum.to}）` : ''}
-          <br />
-          チェック {sum.habits}日・筋トレ {sum.lifts}件・体組成 {sum.comp}回・食事 {sum.meals}件
-        </div>
+        <p className="sub n">
+          体重 {sum.weights}件{sum.from ? `（${sum.from}〜${sum.to}）` : ''}・睡眠 {sum.sleep}件・筋トレ {sum.lifts}件・有酸素 {sum.cardio}件
+        </p>
       )}
       {parsed && (
         <div className="btns">
@@ -441,34 +257,27 @@ function ImportBody({ onDone }: { onDone: () => void }) {
             className="btn"
             onClick={() => {
               importData(parsed, 'merge');
-              setDone('統合しました。');
-              setParsed(null);
+              onDone();
             }}
           >
-            統合する
+            今の記録に足す
           </button>
           <ConfirmButton
             className="btn danger"
             label="置き換える"
-            armedLabel="今の記録を消して置き換え"
+            armedLabel="もう一度押すと置き換え"
             onConfirm={() => {
               importData(parsed, 'replace');
-              setDone('置き換えました。');
-              setParsed(null);
+              onDone();
             }}
           />
         </div>
       )}
-      {parsed && <p className="sm muted">統合：同じ日付は読み込んだ方を優先。置き換え：今の記録を消して読み込んだ内容だけにします。</p>}
-      <p className="hint">{done}</p>
-      <button type="button" className="link" onClick={onDone}>
-        ← 設定に戻る
-      </button>
-    </>
+    </div>
   );
 }
 
-/* ---------- 新しいバージョンのお知らせ ---------- */
+/* ---------- 更新のお知らせ ---------- */
 
 export function UpdatePrompt() {
   const {

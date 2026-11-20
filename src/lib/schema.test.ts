@@ -1,43 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { defaults, mergeData, normalize } from './schema';
+import { defaults, isOldVersion, normalize, summarize } from './schema';
 
-// SPEC.md「9. 既存データの引き継ぎ」の例
-const PROTOTYPE = {
-  v: 2,
-  settings: {
-    age: 21, height: 165, goalWeight: 69,
-    bed: '23:30', wake: '07:00', theme: 'auto',
-    schedule: { '0': 'C', '1': 'uni', '2': 'uni', '3': 'A', '4': 'uni', '5': 'B', '6': 'rest' },
-  },
-  weights: { '2026-09-27': 78.3 },
-  habits: { '2026-09-27': { sleep: true, nosugar: true } },
-  sos: { '2026-09-27': { held: 1, ate: 0 } },
-  lifts: { squat: [{ d: '2026-09-27', w: 60, r: [10, 10, 10] }] },
-  comp: [{ d: '2026-09-27', w: 78.3, fp: 24.2, m: 56.3, v: 11, bmr: 1735 }],
-};
-
-describe('試作版データの読み込み', () => {
-  it('そのまま読める', () => {
-    const d = normalize(PROTOTYPE);
-    expect(d.weights).toEqual({ '2026-09-27': 78.3 });
-    expect(d.habits['2026-09-27']).toEqual({ sleep: true, nosugar: true });
-    expect(d.sos['2026-09-27']).toEqual({ held: 1, ate: 0 });
-    expect(d.lifts.squat).toEqual([{ d: '2026-09-27', w: 60, r: [10, 10, 10] }]);
-    expect(d.comp[0].bmr).toBe(1735);
-    expect(d.food).toEqual({});
+describe('保存データ', () => {
+  it('新しく始めると、開始時の体重 82kg が最初の記録になる', () => {
+    const d = defaults();
+    expect(d.v).toBe(3);
+    expect(d.weights).toEqual({ '2026-11-20': 82 });
+    expect(normalize({})).toEqual(d);
   });
-  it('おかしな値は捨てる', () => {
-    const d = normalize({ ...PROTOTYPE, weights: { '2026-09-27': 78.3, 'bad': 70, '2026-10-01': 'x', '2026-10-02': 900 } });
-    expect(Object.keys(d.weights)).toEqual(['2026-09-27']);
+  it('壊れた項目は捨て、同じ日の筋トレの記録は1つにする', () => {
+    const d = normalize({
+      weights: { '2026-11-21': 81.64, xx: 80, '2026-11-22': 999 },
+      sleep: { '2026-11-21': { bed: '23:30', wake: '07:00' }, '2026-11-22': { bed: '25:00', wake: '07:00' } },
+      lifts: {
+        bench: [
+          { d: '2026-11-22', w: 50, r: [10, 9, 8] },
+          { d: '2026-11-20', w: 47.5, r: [10, 10, 10] },
+          { d: '2026-11-22', w: 52.5, r: [8, 8, 7] },
+          { d: '2026-11-23', w: 50, r: [] },
+        ],
+      },
+      sessions: { '2026-11-22': 'A', '2026-11-25': 'C' },
+      cardio: { '2026-11-23': { min: 25, incline: 12, speed: 4.8 }, '2026-11-24': { min: 0 } },
+      settings: { week: ['lift'], perMonth: 9, goalWeight: 72 },
+    });
+    expect(d.weights).toEqual({ '2026-11-21': 81.6 });
+    expect(Object.keys(d.sleep)).toEqual(['2026-11-21']);
+    expect(d.lifts.bench.map((r) => [r.d, r.w])).toEqual([
+      ['2026-11-20', 47.5],
+      ['2026-11-22', 52.5],
+    ]);
+    expect(d.sessions).toEqual({ '2026-11-22': 'A' });
+    expect(Object.keys(d.cardio)).toEqual(['2026-11-23']);
+    expect(d.settings.week).toEqual(defaults().settings.week);
+    expect(d.settings.perMonth).toBe(2);
+    expect(d.settings.goalWeight).toBe(72);
   });
-  it('関係ない JSON は拒否', () => {
-    expect(() => normalize({ foo: 1 })).toThrow();
-    expect(() => normalize(null)).toThrow();
+  it('件数のまとめ', () => {
+    const s = summarize(normalize({ weights: { '2026-11-20': 82, '2026-11-21': 81.8 }, sleep: { '2026-11-21': { bed: '23:00', wake: '06:30' } } }));
+    expect(s).toMatchObject({ weights: 2, from: '2026-11-20', to: '2026-11-21', sleep: 1, lifts: 0, cardio: 0 });
   });
-  it('統合は同じ日付なら読み込んだ側を優先', () => {
-    const cur = { ...defaults(), weights: { '2026-09-27': 78.3, '2026-10-08': 77.0 } };
-    const inc = normalize({ ...PROTOTYPE, weights: { '2026-10-08': 76.8, '2026-10-01': 77.5 } });
-    const m = mergeData(cur, inc);
-    expect(m.weights).toEqual({ '2026-09-27': 78.3, '2026-10-01': 77.5, '2026-10-08': 76.8 });
+  it('前の版のバックアップを見分ける', () => {
+    expect(isOldVersion({ v: 2, weights: {}, habits: {} })).toBe(true);
+    expect(isOldVersion({ weights: {}, meals: {} })).toBe(true);
+    expect(isOldVersion(defaults())).toBe(false);
   });
 });

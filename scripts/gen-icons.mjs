@@ -15,6 +15,6 @@ const sizes = [
 ];
 
 for (const [name, size] of sizes) {
-  await sharp(svg, { density: 300 }).resize(size, size).flatten({ background: '#1F49AE' }).png().toFile(out(name));
+  await sharp(svg, { density: 300 }).resize(size, size).flatten({ background: '#000000' }).png().toFile(out(name));
   console.log('wrote', name);
 }

@@ -17,12 +17,12 @@ export default defineConfig({
       manifest: {
         name: '減量ノート',
         short_name: '減量ノート',
-        description: '筋肉を守って脂肪だけを落とすための毎日の記録',
+        description: '体重・睡眠・ジムの記録',
         lang: 'ja',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#F4F7FB',
-        theme_color: '#F4F7FB',
+        background_color: '#000000',
+        theme_color: '#000000',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },

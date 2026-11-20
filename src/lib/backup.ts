@@ -4,12 +4,13 @@ import type { AppData } from './schema';
 
 export const backupJson = (d: AppData) => JSON.stringify({ ...d, exportedAt: new Date().toISOString() }, null, 1);
 
-export async function exportBackup(d: AppData): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const name = `genryo-note-${todayStr().replaceAll('-', '')}.json`;
-  const file = new File([backupJson(d)], name, { type: 'application/json' });
+export type ExportResult = 'shared' | 'downloaded' | 'cancelled';
+
+async function saveJson(text: string, name: string, title: string): Promise<ExportResult> {
+  const file = new File([text], name, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: '減量ノートのバックアップ' });
+      await navigator.share({ files: [file], title });
       return 'shared';
     } catch (e) {
       if ((e as Error).name === 'AbortError') return 'cancelled';
@@ -27,6 +28,9 @@ export async function exportBackup(d: AppData): Promise<'shared' | 'downloaded' 
   return 'downloaded';
 }
 
-export async function copyBackup(d: AppData) {
-  await navigator.clipboard.writeText(backupJson(d));
-}
+const stamp = () => todayStr().replaceAll('-', '');
+
+export const exportBackup = (d: AppData) => saveJson(backupJson(d), `genryo-note-${stamp()}.json`, '減量ノートのバックアップ');
+
+/** 前の版の記録をそのまま書き出す */
+export const exportOld = (raw: string) => saveJson(raw, `genryo-note-old-${stamp()}.json`, '減量ノート（前の版）の記録');

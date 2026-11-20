@@ -6,4 +6,5 @@ dev-dist
 
 # 個人情報を含む仕様書と、このPC専用の設定は公開しない
 SPEC.md
+SPEC-*.md
 .claude/

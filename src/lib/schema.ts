@@ -1,318 +1,160 @@
-// 保存データの形。試作版（localStorage キー genryo-note-v2）と同じ形で、
-// food / backupAt だけを追加している。
-import { DEFAULT_FAVORITES, DEFAULT_SETTINGS, SEED_COMP } from '../data/seed';
+// 保存データの形と、読み込んだデータを安全な形に整える処理
+import { DEFAULT_CARDIO, DEFAULT_GOAL, type Session } from '../data/plan';
 import { isHHMM, isYmd } from './date';
-import { r1 } from './format';
 
-export type DayType = 'uni' | 'A' | 'B' | 'C' | 'rest';
-export type GymDay = 'A' | 'B' | 'C';
-export type Theme = 'auto' | 'light' | 'dark';
+export type DayKind = 'lift' | 'cardio' | 'rest';
+export const DAY_KINDS: DayKind[] = ['lift', 'cardio', 'rest'];
 
-export const DAY_TYPES: DayType[] = ['uni', 'A', 'B', 'C', 'rest'];
-export const isGym = (t: DayType): t is GymDay => t === 'A' || t === 'B' || t === 'C';
-
-export interface Settings {
-  age: number;
-  height: number;
-  goalWeight: number;
-  bed: string;
-  wake: string;
-  theme: Theme;
-  /** キーは曜日番号 '0'（日）〜 '6'（土） */
-  schedule: Record<string, DayType>;
-}
-
-/** 筋トレ1回分: w = 重量kg, r = 各セットの回数 */
+/** 1種目・1日分の記録 */
 export interface LiftRec {
   d: string;
   w: number;
   r: number[];
 }
 
-/** 体組成: fp = 体脂肪率, m = 筋肉量, v = 内臓脂肪レベル, bmr = 基礎代謝（実測） */
-export interface Comp {
-  d: string;
-  w: number;
-  fp: number;
-  m: number;
-  v: number;
-  bmr?: number;
+/** 睡眠（起きた日の日付で保存） */
+export interface SleepRec {
+  bed: string;
+  wake: string;
 }
 
-export interface SosDay {
-  held: number;
-  ate: number;
+export interface CardioRec {
+  min: number;
+  incline: number;
+  speed: number;
 }
 
-export type FoodKey = 'fried' | 'alcohol' | 'treat' | 'heavy';
-export type FoodDay = Partial<Record<FoodKey, number>>;
-export const FOOD_KEYS: FoodKey[] = ['fried', 'alcohol', 'treat', 'heavy'];
-
-export type MealSlot = 'breakfast' | 'lunch' | 'snack' | 'dinner';
-export const MEAL_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
-
-/** 1品: p = たんぱく質, f = 脂質, c = 炭水化物（いずれも g） */
-export interface MealItem {
-  name: string;
-  amount: string;
-  kcal: number;
-  p: number;
-  f: number;
-  c: number;
-}
-
-/** よく食べる食事（1タップで記録する） */
-export interface Favorite {
-  id: string;
-  name: string;
-  /** 記録するときの区分。なければ時刻から決める */
-  slot?: MealSlot;
-  items: MealItem[];
-}
-
-export interface Meal {
-  id: string;
-  /** 記録した時刻 HH:MM */
-  t: string;
-  slot: MealSlot;
-  items: MealItem[];
-  note?: string;
-  /** 食事写真のサムネイル（IndexedDB のキー） */
-  photo?: string;
-  /** AI で推定したときの情報（usd は推定にかかった費用の目安） */
-  ai?: { model: string; confidence: 'high' | 'medium' | 'low'; usd?: number };
+export interface Settings {
+  startDate: string;
+  startWeight: number;
+  goalWeight: number;
+  /** 1か月に減らす kg */
+  perMonth: number;
+  /** 曜日ごとの予定（0 = 日曜） */
+  week: DayKind[];
+  cardio: { incline: number; speed: number; cardioMin: number; liftMin: number };
 }
 
 export interface AppData {
-  v: 2;
-  settings: Settings;
+  v: 3;
   weights: Record<string, number>;
-  habits: Record<string, Record<string, boolean>>;
-  sos: Record<string, SosDay>;
+  sleep: Record<string, SleepRec>;
   lifts: Record<string, LiftRec[]>;
-  comp: Comp[];
-  /** 追加: 週の回数で管理する食事（揚げ物・お酒・ごほうび食・△の昼） */
-  food: Record<string, FoodDay>;
-  /** 追加: 食事の記録（写真からの推定や手入力） */
-  meals: Record<string, Meal[]>;
-  /** 追加: よく食べる食事 */
-  favorites: Favorite[];
-  /** 追加: 最後にバックアップを書き出した日時（ISO） */
-  backupAt?: string;
+  /** その日に行った筋トレ（ベンチの日／デッドの日） */
+  sessions: Record<string, Session>;
+  cardio: Record<string, CardioRec>;
+  settings: Settings;
 }
 
-export function defaults(): AppData {
-  return {
-    v: 2,
-    settings: { ...DEFAULT_SETTINGS, schedule: { ...DEFAULT_SETTINGS.schedule } },
-    weights: { [SEED_COMP.d]: SEED_COMP.w },
-    habits: {},
-    sos: {},
-    lifts: {},
-    comp: [{ ...SEED_COMP }],
-    food: {},
-    meals: {},
-    favorites: DEFAULT_FAVORITES.map((f) => ({ ...f, items: f.items.map((i) => ({ ...i })) })),
-  };
-}
+/** 日・月・火・水・木・金・土 */
+export const DEFAULT_WEEK: DayKind[] = ['lift', 'cardio', 'cardio', 'lift', 'cardio', 'lift', 'rest'];
 
-const num = (x: unknown, lo: number, hi: number): number | undefined =>
+export const defaultSettings = (): Settings => ({
+  ...DEFAULT_GOAL,
+  week: [...DEFAULT_WEEK],
+  cardio: { ...DEFAULT_CARDIO },
+});
+
+export const defaults = (): AppData => ({
+  v: 3,
+  // 開始時の体重を最初の記録にしておく（当日に量り直したら上書きされる）
+  weights: { [DEFAULT_GOAL.startDate]: DEFAULT_GOAL.startWeight },
+  sleep: {},
+  lifts: {},
+  sessions: {},
+  cardio: {},
+  settings: defaultSettings(),
+});
+
+/* ---------- 整える ---------- */
+
+const obj = (x: unknown): Record<string, unknown> => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
+
+export const num = (x: unknown, lo: number, hi: number): number | undefined =>
   typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi ? x : undefined;
 
-const int = (x: unknown) => {
-  const n = num(x, 0, 1000);
-  return n === undefined ? 0 : Math.round(n);
-};
+const r1 = (n: number) => Math.round(n * 10) / 10;
 
-const obj = (x: unknown): Record<string, unknown> =>
-  x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : {};
-
-const KNOWN_KEYS = ['settings', 'weights', 'habits', 'sos', 'lifts', 'comp'];
-
-/**
- * 外から来たデータ（localStorage・インポート）を検証して整える。
- * 試作版の JSON をそのまま受け付ける。形が明らかに違うときは例外。
- */
-export function normalize(raw: unknown): AppData {
-  const o = obj(raw);
-  if (!KNOWN_KEYS.some((k) => k in o)) throw new Error('減量ノートのデータではないようです');
-  const base = defaults();
-
-  const s = obj(o.settings);
-  const sch = obj(s.schedule);
-  const settings: Settings = {
-    age: num(s.age, 10, 100) ?? base.settings.age,
-    height: num(s.height, 100, 250) ?? base.settings.height,
-    goalWeight: num(s.goalWeight, 30, 200) ?? base.settings.goalWeight,
-    bed: isHHMM(s.bed) ? s.bed : base.settings.bed,
-    wake: isHHMM(s.wake) ? s.wake : base.settings.wake,
-    theme: s.theme === 'light' || s.theme === 'dark' ? s.theme : 'auto',
-    schedule: Object.fromEntries(
-      ['0', '1', '2', '3', '4', '5', '6'].map((k) => {
-        const v = sch[k];
-        return [k, DAY_TYPES.includes(v as DayType) ? (v as DayType) : base.settings.schedule[k]];
-      }),
-    ),
+function normalizeSettings(x: unknown): Settings {
+  const e = obj(x);
+  const def = defaultSettings();
+  const week = Array.isArray(e.week) && e.week.length === 7 && e.week.every((k) => DAY_KINDS.includes(k as DayKind)) ? (e.week as DayKind[]) : def.week;
+  const c = obj(e.cardio);
+  return {
+    startDate: isYmd(e.startDate) ? e.startDate : def.startDate,
+    startWeight: num(e.startWeight, 30, 250) ?? def.startWeight,
+    goalWeight: num(e.goalWeight, 30, 250) ?? def.goalWeight,
+    perMonth: num(e.perMonth, 0.5, 5) ?? def.perMonth,
+    week: [...week],
+    cardio: {
+      incline: num(c.incline, 0, 30) ?? def.cardio.incline,
+      speed: num(c.speed, 1, 20) ?? def.cardio.speed,
+      cardioMin: num(c.cardioMin, 1, 180) ?? def.cardio.cardioMin,
+      liftMin: num(c.liftMin, 0, 180) ?? def.cardio.liftMin,
+    },
   };
+}
 
-  const weights: Record<string, number> = {};
-  for (const [d, w] of Object.entries(obj(o.weights))) {
-    const v = num(w, 30, 200);
-    if (isYmd(d) && v !== undefined) weights[d] = r1(v);
+function normalizeLift(x: unknown): LiftRec | null {
+  const e = obj(x);
+  if (!isYmd(e.d)) return null;
+  const w = num(e.w, 0, 500);
+  const r = (Array.isArray(e.r) ? e.r : []).filter((n): n is number => num(n, 1, 100) !== undefined).map(Math.round);
+  if (w === undefined || !r.length) return null;
+  return { d: e.d, w: r1(w), r: r.slice(0, 10) };
+}
+
+/** 読み込んだ JSON を、この版の形に整える（壊れた項目は捨てる） */
+export function normalize(x: unknown): AppData {
+  const e = obj(x);
+  const out = defaults();
+  out.weights = {};
+
+  for (const [d, w] of Object.entries(obj(e.weights))) {
+    const v = num(w, 30, 250);
+    if (isYmd(d) && v !== undefined) out.weights[d] = r1(v);
   }
-
-  const habits: AppData['habits'] = {};
-  for (const [d, h] of Object.entries(obj(o.habits))) {
-    if (!isYmd(d)) continue;
-    const on = Object.entries(obj(h)).filter(([, v]) => v === true);
-    if (on.length) habits[d] = Object.fromEntries(on.map(([k]) => [k, true]));
+  for (const [d, s] of Object.entries(obj(e.sleep))) {
+    const v = obj(s);
+    if (isYmd(d) && isHHMM(v.bed) && isHHMM(v.wake)) out.sleep[d] = { bed: v.bed, wake: v.wake };
   }
-
-  const sos: AppData['sos'] = {};
-  for (const [d, x] of Object.entries(obj(o.sos))) {
-    const e = obj(x);
-    const rec = { held: int(e.held), ate: int(e.ate) };
-    if (isYmd(d) && (rec.held || rec.ate)) sos[d] = rec;
+  for (const [id, list] of Object.entries(obj(e.lifts))) {
+    const recs = (Array.isArray(list) ? list : []).map(normalizeLift).filter((r): r is LiftRec => r !== null);
+    // 同じ日の記録は1つにして日付順に並べる
+    const byDay = new Map(recs.map((r) => [r.d, r]));
+    if (byDay.size) out.lifts[id] = [...byDay.values()].sort((a, b) => a.d.localeCompare(b.d));
   }
-
-  const lifts: AppData['lifts'] = {};
-  for (const [id, arr] of Object.entries(obj(o.lifts))) {
-    if (!Array.isArray(arr)) continue;
-    const byDate = new Map<string, LiftRec>();
-    for (const x of arr) {
-      const e = obj(x);
-      const w = num(e.w, 0, 500);
-      const r = Array.isArray(e.r) ? e.r.map((n) => num(n, 1, 100)).filter((n): n is number => n !== undefined).map(Math.round) : [];
-      if (isYmd(e.d) && w !== undefined && r.length) byDate.set(e.d, { d: e.d, w: r1(w), r });
+  for (const [d, s] of Object.entries(obj(e.sessions))) {
+    if (isYmd(d) && (s === 'A' || s === 'B')) out.sessions[d] = s;
+  }
+  for (const [d, c] of Object.entries(obj(e.cardio))) {
+    const v = obj(c);
+    const min = num(v.min, 1, 300);
+    if (isYmd(d) && min !== undefined) {
+      out.cardio[d] = { min: Math.round(min), incline: num(v.incline, 0, 30) ?? 0, speed: num(v.speed, 0, 20) ?? 0 };
     }
-    const list = [...byDate.values()].sort((a, b) => (a.d < b.d ? -1 : 1));
-    if (list.length) lifts[id] = list;
   }
-
-  const compByDate = new Map<string, Comp>();
-  let lastV = base.comp[0].v;
-  const rawComp = (Array.isArray(o.comp) ? o.comp : []).map(obj).sort((a, b) => (String(a.d) < String(b.d) ? -1 : 1));
-  for (const e of rawComp) {
-    const w = num(e.w, 30, 200);
-    const fp = num(e.fp, 3, 70);
-    const m = num(e.m, 10, 150);
-    if (!isYmd(e.d) || w === undefined || fp === undefined || m === undefined) continue;
-    const v = num(e.v, 1, 60) ?? lastV;
-    lastV = v;
-    const bmr = num(e.bmr, 800, 4000);
-    compByDate.set(e.d, { d: e.d, w: r1(w), fp: r1(fp), m: r1(m), v, ...(bmr !== undefined ? { bmr: Math.round(bmr) } : {}) });
-  }
-  const comp = compByDate.size ? [...compByDate.values()] : base.comp;
-
-  const food: AppData['food'] = {};
-  for (const [d, x] of Object.entries(obj(o.food))) {
-    if (!isYmd(d)) continue;
-    const e = obj(x);
-    const rec: FoodDay = {};
-    for (const k of FOOD_KEYS) if (int(e[k])) rec[k] = int(e[k]);
-    if (Object.keys(rec).length) food[d] = rec;
-  }
-
-  const meals: AppData['meals'] = {};
-  for (const [d, list] of Object.entries(obj(o.meals))) {
-    if (!isYmd(d) || !Array.isArray(list)) continue;
-    const day = list.map(normalizeMeal).filter((m): m is Meal => m !== null);
-    if (day.length) meals[d] = day;
-  }
-
-  // まだ一度も保存していない（試作版や古いデータ）ときだけ初期値を入れる。空の配列は「全部消した」なので尊重する
-  const favorites = Array.isArray(o.favorites)
-    ? o.favorites.map(normalizeFavorite).filter((f): f is Favorite => f !== null)
-    : base.favorites;
-
-  // 測定日の体重は体重記録にも入れておく（試作版と同じ挙動）
-  for (const c of comp) if (weights[c.d] === undefined) weights[c.d] = c.w;
-
-  const out: AppData = { v: 2, settings, weights, habits, sos, lifts, comp, food, meals, favorites };
-  if (typeof o.backupAt === 'string') out.backupAt = o.backupAt;
+  out.settings = normalizeSettings(e.settings);
+  // 体重が1件もないデータ（新しく始めた直後など）は、開始時の体重を入れておく
+  if (!Object.keys(out.weights).length && !('weights' in e)) out.weights[out.settings.startDate] = out.settings.startWeight;
   return out;
 }
 
-const str = (x: unknown, max = 200) => (typeof x === 'string' ? x.slice(0, max) : '');
-
-/** 品目の数値を整える（AI の出力やインポートで使う） */
-export function normalizeItem(x: unknown): MealItem | null {
-  const e = obj(x);
-  const name = str(e.name, 60).trim();
-  if (!name) return null;
-  const n = (v: unknown) => Math.round(num(v, 0, 5000) ?? 0);
-  return { name, amount: str(e.amount, 60), kcal: n(e.kcal), p: n(e.p), f: n(e.f), c: n(e.c) };
-}
-
-function normalizeMeal(x: unknown): Meal | null {
-  const e = obj(x);
-  const items = (Array.isArray(e.items) ? e.items : []).map(normalizeItem).filter((i): i is MealItem => i !== null);
-  if (typeof e.id !== 'string' || !items.length) return null;
-  const slot = MEAL_SLOTS.includes(e.slot as MealSlot) ? (e.slot as MealSlot) : 'snack';
-  const meal: Meal = { id: e.id, t: isHHMM(e.t) ? e.t : '12:00', slot, items };
-  if (typeof e.note === 'string' && e.note) meal.note = e.note.slice(0, 200);
-  if (typeof e.photo === 'string') meal.photo = e.photo;
-  const ai = obj(e.ai);
-  if (typeof ai.model === 'string' && ['high', 'medium', 'low'].includes(ai.confidence as string)) {
-    meal.ai = { model: ai.model, confidence: ai.confidence as 'high' | 'medium' | 'low' };
-    const usd = num(ai.usd, 0, 10);
-    if (usd !== undefined) meal.ai.usd = usd;
-  }
-  return meal;
-}
-
-function normalizeFavorite(x: unknown): Favorite | null {
-  const e = obj(x);
-  const items = (Array.isArray(e.items) ? e.items : []).map(normalizeItem).filter((i): i is MealItem => i !== null);
-  const name = str(e.name, 40).trim();
-  if (typeof e.id !== 'string' || !name || !items.length) return null;
-  const fav: Favorite = { id: e.id, name, items };
-  if (MEAL_SLOTS.includes(e.slot as MealSlot)) fav.slot = e.slot as MealSlot;
-  return fav;
-}
-
-/** インポートの「統合」: 同じ日付は読み込んだ側を優先。設定は読み込んだ側 */
-export function mergeData(cur: AppData, inc: AppData): AppData {
-  const lifts: AppData['lifts'] = { ...cur.lifts };
-  for (const [id, list] of Object.entries(inc.lifts)) {
-    const m = new Map((lifts[id] ?? []).map((x) => [x.d, x]));
-    for (const x of list) m.set(x.d, x);
-    lifts[id] = [...m.values()].sort((a, b) => (a.d < b.d ? -1 : 1));
-  }
-  const comp = new Map(cur.comp.map((c) => [c.d, c]));
-  for (const c of inc.comp) comp.set(c.d, c);
-  // 食事は同じ日でも別の記録なので、id ごとに合わせる
-  const meals: AppData['meals'] = { ...cur.meals };
-  for (const [d, list] of Object.entries(inc.meals)) {
-    const m = new Map((meals[d] ?? []).map((x) => [x.id, x]));
-    for (const x of list) m.set(x.id, x);
-    meals[d] = [...m.values()].sort((a, b) => (a.t < b.t ? -1 : 1));
-  }
-  return {
-    v: 2,
-    settings: inc.settings,
-    weights: { ...cur.weights, ...inc.weights },
-    habits: { ...cur.habits, ...inc.habits },
-    sos: { ...cur.sos, ...inc.sos },
-    lifts,
-    comp: [...comp.values()].sort((a, b) => (a.d < b.d ? -1 : 1)),
-    food: { ...cur.food, ...inc.food },
-    meals,
-    favorites: [...new Map([...cur.favorites, ...inc.favorites].map((f) => [f.id, f])).values()],
-    backupAt: cur.backupAt,
-  };
-}
-
-/** インポート前の確認用の件数 */
+/** 読み込み前の確認用の件数 */
 export function summarize(d: AppData) {
-  const wd = Object.keys(d.weights).sort();
+  const days = Object.keys(d.weights).sort();
   return {
-    weights: wd.length,
-    from: wd[0],
-    to: wd[wd.length - 1],
-    habits: Object.keys(d.habits).length,
-    lifts: Object.values(d.lifts).reduce((n, l) => n + l.length, 0),
-    comp: d.comp.length,
-    meals: Object.values(d.meals).reduce((n, l) => n + l.length, 0),
+    weights: days.length,
+    from: days[0],
+    to: days[days.length - 1],
+    sleep: Object.keys(d.sleep).length,
+    lifts: Object.values(d.lifts).reduce((a, l) => a + l.length, 0),
+    cardio: Object.keys(d.cardio).length,
   };
 }
+
+/** 前の版（genryo-note-v2）のデータかどうか */
+export const isOldVersion = (x: unknown) => {
+  const e = obj(x);
+  return e.v !== 3 && ('habits' in e || 'comp' in e || 'meals' in e);
+};

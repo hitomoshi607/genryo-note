@@ -1,220 +1,123 @@
-import { useState } from 'react';
-import { FavoriteChips } from '../components/FavoriteChips';
-import { IconCamera, IconCheck } from '../components/Icons';
-import { dayTotals, defaultSlot } from '../lib/meals';
-import { T_MAIN, T_SHORT, T_OPT, T_SUB } from '../data/plan';
-import { saveWeight, toggleHabit } from '../lib/actions';
-import { STEPS_GOAL, avg7, calcTargets, checksFor, currentWeight, dayTypeOf, latestComp, weightAlert, weightEntries } from '../lib/calc';
-import { WD, addDays, dayDiff, jDate, mondayOf, weekday } from '../lib/date';
-import { comma, f1, signed } from '../lib/format';
-import { isGym, type AppData } from '../lib/schema';
+import { IconCheck } from '../components/Icons';
+import { CardioRow, SleepInput, WeightInput } from '../components/Inputs';
+import { WORKOUTS } from '../data/plan';
+import { addDays, jDate, WD, weekday } from '../lib/date';
+import { f1, signed } from '../lib/format';
+import { dayKind, isDeloadWeek, KIND_LABEL, projectSessions, sessionFor } from '../lib/gym';
+import { sleepStats, hm } from '../lib/sleep';
 import { useData } from '../lib/store';
 import { useToday } from '../lib/useToday';
-import { alertHelpKey } from '../help';
+import { weightStatus } from '../lib/weight';
 import { Card, HelpButton, useUI } from '../ui';
 
 export function Today() {
   const d = useData();
   const today = useToday();
-  const { go, openSos, openSettings, openMeal } = useUI();
-  const type = dayTypeOf(d, today);
-  const t = calcTargets(latestComp(d));
-  const eaten = dayTotals(d, today);
-  const slotNow = defaultSlot();
-  const alert = weightAlert(d, today);
-  const mon = mondayOf(today);
-  const sos = d.sos[today];
-  const backupDays = d.backupAt ? dayDiff(d.backupAt.slice(0, 10), today) : null;
-  const hasRecords = Object.keys(d.weights).length > 3;
+  const kind = dayKind(d, today);
+  const st = weightStatus(d, today);
+  const ss = sleepStats(d.sleep, today);
 
   return (
     <>
-      <div className="hero">
-        <div>
-          <p className="hero-d">{jDate(today)}</p>
-          <h1>{T_MAIN[type]}</h1>
-          <p className="hero-s">{T_SUB[type]}</p>
-        </div>
-        <HelpButton k="today" label="今日のポイント" />
+      <div className="page-h">
+        <h1>{jDate(today)}</h1>
+        <span className={`kind ${kind}`}>{kind === 'lift' ? `筋トレ・${WORKOUTS[sessionFor(d, today)].short}` : KIND_LABEL[kind]}</span>
+        <HelpButton k="today" label="この画面について" />
       </div>
 
-      {isGym(type) && (
-        <button type="button" className="btn wide mb" onClick={() => go('gym', { gymDay: type })}>
-          今日のメニュー（Day {type}）を開く
-        </button>
-      )}
-
-      <ul className="week" aria-label="今週の予定">
-        {Array.from({ length: 7 }, (_, i) => addDays(mon, i)).map((day) => {
-          const k = dayTypeOf(d, day);
-          return (
-            <li
-              key={day}
-              className={`${isGym(k) ? 'gym' : ''}${day === today ? ' now' : ''}`}
-              aria-label={`${WD[weekday(day)]}曜日 ${T_OPT[k]}${d.weights[day] !== undefined ? ' 体重記録あり' : ''}`}
-            >
-              <span className="wd">{WD[weekday(day)]}</span>
-              <span className="wt">{T_SHORT[k]}</span>
-              <span className={`wdot${d.weights[day] !== undefined ? ' on' : ''}`} />
-            </li>
-          );
-        })}
-      </ul>
-
-      {alert && (
-        <div className={`alert ${alert.kind}`} role="status">
-          <div>
-            <b>{alert.kind === 'fast' ? `減りが速すぎ（週${f1(-alert.perWeek)}kg）` : '2週間 7日平均が停滞'}</b>
-            <span>{alert.kind === 'fast' ? '間食を1つ足す' : `今週は：${alert.tip.text}`}</span>
-          </div>
-          <HelpButton k={alertHelpKey(alert.kind)} label="くわしく" />
-        </div>
-      )}
-
-      <Card title="今日の目安" help="targets" helpLabel="目安の根拠">
-        <div className="aims">
-          <div>
-            <b className="n">{comma(t.kcal)}</b>
-            <span>kcal</span>
-          </div>
-          <div>
-            <b className="n">{t.p}</b>
-            <span>タンパク質 g</span>
-          </div>
-          <div>
-            <b className="n">{comma(STEPS_GOAL)}</b>
-            <span>歩</span>
-          </div>
-        </div>
-        <div className="eaten">
-          {eaten.kcal > 0 ? (
-            <span className="n">
-              食べた <b className={eaten.kcal > t.kcal ? 'warn-t' : ''}>{comma(eaten.kcal)}</b>kcal・P <b>{eaten.p}</b>g
-            </span>
-          ) : (
-            <span className="muted">食事の記録はまだありません</span>
-          )}
-          <button type="button" className="btn ghost sm icon-btn" onClick={() => openMeal({ date: today })}>
-            <IconCamera />
-            食事を記録
-          </button>
-        </div>
-        <FavoriteChips date={today} favorites={d.favorites.filter((f) => !f.slot || f.slot === slotNow)} />
+      <Card title="体重" help="weight" helpLabel="体重の見方">
+        <WeightInput key={today} date={today} />
+        {st && (
+          <p className="sub n">
+            7日平均 <b>{f1(st.now)}</b>・計画 {f1(st.plan)}
+            <span className={st.diff > 0 ? 'warn-t' : 'ok-t'}>（{signed(st.diff)}）</span>
+          </p>
+        )}
       </Card>
 
-      <WeightCard key={today} d={d} today={today} />
+      <Card title="睡眠" side="昨夜" help="sleep" helpLabel="睡眠の見方">
+        <SleepInput key={today} date={today} />
+        {ss && (
+          <p className="sub n">
+            7日平均 <b>{hm(ss.avgMin)}</b>・寝る時刻 {ss.avgBed}
+          </p>
+        )}
+      </Card>
 
-      <ChecksCard d={d} today={today} />
-
-      <button type="button" className="sos" onClick={openSos}>
-        食べたくなったら押す
-      </button>
-      <p className="sos-n n">{sos ? `今日：乗り切った ${sos.held}回／食べた ${sos.ate}回` : ''}</p>
-
-      {hasRecords && (backupDays === null || backupDays >= 30) && (
-        <button type="button" className="nudge" onClick={openSettings}>
-          {backupDays === null ? 'まだバックアップがありません' : `最後のバックアップから${backupDays}日`} → 設定から書き出す
-        </button>
-      )}
+      <TodayGym />
     </>
   );
 }
 
-function WeightCard({ d, today }: { d: AppData; today: string }) {
-  const recorded = d.weights[today];
-  const entries = weightEntries(d.weights);
-  const lastVal = entries.length ? entries[entries.length - 1].w : latestComp(d).w;
-  const [val, setVal] = useState(recorded !== undefined ? f1(recorded) : '');
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState(false);
+function TodayGym() {
+  const d = useData();
+  const today = useToday();
+  const { go } = useUI();
+  const kind = dayKind(d, today);
 
-  const stepBy = (delta: number) => {
-    const base = parseFloat(val);
-    setVal(f1((Number.isFinite(base) ? base : lastVal) + delta));
-    setMsg('');
-  };
+  if (kind === 'cardio') {
+    return (
+      <Card title="有酸素" help="cardio" helpLabel="傾斜ウォーキングについて">
+        <CardioRow key={today} date={today} kind="cardio" />
+      </Card>
+    );
+  }
 
-  const save = () => {
-    const v = parseFloat(val);
-    if (!Number.isFinite(v) || v < 30 || v > 200) {
-      setErr(true);
-      setMsg('30〜200kgの数字を入力してください。');
-      return;
-    }
-    saveWeight(today, v);
-    const next = { ...d.weights, [today]: Math.round(v * 10) / 10 };
-    const a = avg7(next, today) as number;
-    const p = avg7(next, addDays(today, -7));
-    setErr(false);
-    setVal(f1(v));
-    setMsg(`記録しました。7日平均 ${f1(a)}kg${p !== null ? `（先週より ${signed(a - p)}kg）` : ''}`);
-    (document.activeElement as HTMLElement | null)?.blur();
-  };
+  if (kind === 'rest') {
+    // 次にジムへ行く日
+    let next = addDays(today, 1);
+    for (let i = 0; i < 7 && dayKind(d, next) === 'rest'; i++) next = addDays(next, 1);
+    const nk = dayKind(d, next);
+    const plan = projectSessions(d, Array.from({ length: 8 }, (_, i) => addDays(today, i)));
+    return (
+      <Card title="休み">
+        <p className="sub">
+          次は {WD[weekday(next)]}曜：{nk === 'lift' && plan[next] ? `筋トレ（${WORKOUTS[plan[next]].name}）` : KIND_LABEL[nk]}
+        </p>
+      </Card>
+    );
+  }
 
+  const s = sessionFor(d, today);
+  const W = WORKOUTS[s];
+  const done = W.ex.filter((ex) => d.lifts[ex.id]?.some((r) => r.d === today)).length;
   return (
-    <Card title={<label htmlFor="w-today">今朝の体重</label>} help="weigh" helpLabel="測り方">
-      <div className="wrow">
-        <button type="button" className="stepper" onClick={() => stepBy(-0.1)} aria-label="0.1kg減らす">
-          −
-        </button>
-        <div className="inp-wrap">
-          <input
-            id="w-today"
-            className="inp big n"
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="30"
-            max="200"
-            placeholder={f1(lastVal)}
-            value={val}
-            aria-invalid={err}
-            aria-describedby="w-hint"
-            onChange={(e) => {
-              setVal(e.target.value);
-              setMsg('');
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') save();
-            }}
-          />
-          <span className="unit">kg</span>
-        </div>
-        <button type="button" className="stepper" onClick={() => stepBy(0.1)} aria-label="0.1kg増やす">
-          ＋
-        </button>
-        <button type="button" className="btn" onClick={save}>
-          記録
-        </button>
-      </div>
-      <p id="w-hint" className={`hint n${err ? ' err' : ''}`}>
-        {msg || (recorded !== undefined ? '今日は記録済みです（直すときは入れ直して記録）' : `前回 ${f1(lastVal)}kg・いま（7日平均）${f1(currentWeight(d))}kg`)}
-      </p>
-    </Card>
-  );
-}
-
-function ChecksCard({ d, today }: { d: AppData; today: string }) {
-  const list = checksFor(d, today);
-  const done = d.habits[today] ?? {};
-  const n = list.filter((c) => done[c.id]).length;
-  return (
-    <Card title="今日のチェック" side={`${n} / ${list.length}`} help="checks" helpLabel="項目の説明">
-      <div className="bar" aria-hidden="true">
-        <i style={{ width: `${Math.round((n / list.length) * 100)}%` }} />
-      </div>
-      <ul className="checks">
-        {list.map((c) => (
-          <li key={c.id}>
-            <button type="button" className="ck" aria-pressed={!!done[c.id]} onClick={() => toggleHabit(today, c.id)}>
-              <span className="bx">
-                <IconCheck />
-              </span>
-              <span className="ct">{c.t}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+    <Card title={W.name} side={`${done}/${W.ex.length}`} help="gym" helpLabel="メニューの考え方">
+      {isDeloadWeek(d.settings.startDate, today) && <p className="note">今週は軽めの週（重さはいつもの7割）</p>}
+      <ol className="ex-list">
+        {W.ex.map((ex) => {
+          const rec = d.lifts[ex.id]?.find((r) => r.d === today);
+          return (
+            <li key={ex.id} className={rec ? 'done' : ''}>
+              <span>{ex.n}</span>
+              {rec ? (
+                <span className="n ok-t">
+                  <IconCheck />
+                  {f1(rec.w).replace(/\.0$/, '')}kg×{rec.r.join('/')}
+                </span>
+              ) : (
+                <span className="n muted">
+                  {ex.sets}×{ex.lo}〜{ex.hi}
+                </span>
+              )}
+            </li>
+          );
+        })}
+        <li className={d.cardio[today] ? 'done' : ''}>
+          <span>有酸素</span>
+          {d.cardio[today] ? (
+            <span className="n ok-t">
+              <IconCheck />
+              {d.cardio[today].min}分
+            </span>
+          ) : (
+            <span className="n muted">{d.settings.cardio.liftMin}分</span>
+          )}
+        </li>
+      </ol>
+      <button type="button" className="btn wide mt" onClick={() => go('gym')}>
+        ジムの記録を開く
+      </button>
     </Card>
   );
 }

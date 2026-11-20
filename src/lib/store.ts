@@ -1,8 +1,8 @@
-// 記録データの保存先は端末の localStorage だけ（キーは試作版と同じ genryo-note-v2）
+// 記録データの保存先は端末の localStorage だけ（2026-11 の作り直しでキーを v3 に変え、新しく始めた）
 import { useSyncExternalStore } from 'react';
 import { defaults, normalize, type AppData } from './schema';
 
-export const STORAGE_KEY = 'genryo-note-v2';
+export const STORAGE_KEY = 'genryo-note-v3';
 
 let saveFailed = false;
 
@@ -71,4 +71,47 @@ export async function requestPersist() {
   } catch {
     /* 対応していない環境では何もしない */
   }
+}
+
+/* ---------- 前の版のデータ ---------- */
+
+/** 前の版が使っていた保存先（記録・写真推定の API キー・筋トレの入力途中） */
+const OLD_KEYS = ['genryo-note-v2', 'genryo-note-ai', 'genryo-gym-draft'];
+/** 前の版が写真を入れていた IndexedDB */
+const OLD_DBS = ['genryo-note-photos', 'genryo-note-meal-photos'];
+
+/** 前の版の記録（JSON の文字列）。なければ null */
+export function oldRecord(): string | null {
+  try {
+    return localStorage.getItem('genryo-note-v2');
+  } catch {
+    return null;
+  }
+}
+
+/** 前の版のデータを端末から消す（記録・API キー・写真） */
+export async function deleteOldData() {
+  for (const k of OLD_KEYS) {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      /* 消せなくても続ける */
+    }
+  }
+  for (const k of Object.keys(localStorage)) {
+    if (k.startsWith('genryo-note-v2-broken-')) localStorage.removeItem(k);
+  }
+  await Promise.all(
+    OLD_DBS.map(
+      (name) =>
+        new Promise<void>((done) => {
+          try {
+            const req = indexedDB.deleteDatabase(name);
+            req.onsuccess = req.onerror = req.onblocked = () => done();
+          } catch {
+            done();
+          }
+        }),
+    ),
+  );
 }

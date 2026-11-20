@@ -1,4 +1,4 @@
-// レストタイマー・ストレス食いタイマー。終了時刻で持つので、画面を離れて戻っても正しい残り時間になる
+// レストタイマー。終了時刻で持つので、画面を離れて戻っても正しい残り時間になる
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 export interface Countdown {
@@ -37,7 +37,6 @@ function createTimer() {
 }
 
 export const restTimer = createTimer();
-export const sosTimer = createTimer();
 
 export const useTimer = (t: ReturnType<typeof createTimer>) => useSyncExternalStore(t.subscribe, t.get);
 

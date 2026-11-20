@@ -19,6 +19,16 @@ export const addDays = (s: string, n: number) => {
   return ymd(d);
 };
 
+/** n か月後の同じ日（その月にない日は月末にそろえる: 1/31 の1か月後は 2/28） */
+export const addMonths = (s: string, n: number) => {
+  const d = parse(s);
+  const day = d.getDate();
+  const t = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  t.setDate(Math.min(day, last));
+  return ymd(t);
+};
+
 /** b − a の日数 */
 export const dayDiff = (a: string, b: string) => Math.round((parse(b).getTime() - parse(a).getTime()) / 86400000);
 
