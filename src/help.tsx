@@ -1,8 +1,9 @@
 // 「?」ボタンの中身。画面には数字とやることだけを置き、根拠や説明はここにしまう
 import type { ReactNode } from 'react';
 import { ALL_EXERCISES, pace, SLEEP_TARGET_H, WORKOUTS, type Part } from './data/plan';
+import { atGoal, compDiff, dailyGuide, fatKg, LEAN_TOLERANCE, leanKg, musclePct, visceralLabel } from './lib/comp';
 import { jMD } from './lib/date';
-import { f1, kg } from './lib/format';
+import { comma, f1, kg, signed } from './lib/format';
 import { deloadWindow } from './lib/gym';
 import { mmss } from './lib/timer';
 import type { AppData } from './lib/schema';
@@ -193,6 +194,88 @@ export function getHelp(key: string, d: AppData, today: string): Help | null {
               <li>消費の目安は体重 {f1(w)}kg で計算しています（ACSM の歩行の式。実際は人によって前後します）。</li>
               <li>傾斜・速さ・時間は設定で変えられます。</li>
             </ul>
+          </>
+        ),
+      };
+    }
+
+    case 'comp': {
+      const cd = compDiff(d.comp);
+      if (!cd) {
+        return {
+          title: '体組成',
+          body: <p>体組成計（TANITA など）の結果を「体組成を記録」から入れると、脂肪量・除脂肪量と、目標に向けたアドバイスが出ます。</p>,
+        };
+      }
+      const c = cd.now;
+      const g = atGoal(c, s);
+      const guide = dailyGuide(c, s);
+      const months = g.fatToLose / s.perMonth;
+      return {
+        title: '体組成の見方とアドバイス',
+        body: (
+          <>
+            <Kv
+              rows={[
+                ['測った日', jMD(c.d)],
+                ['体重', `${f1(c.w)}kg`],
+                ['体脂肪率・脂肪量', `${f1(c.fat)}%・${f1(fatKg(c))}kg`],
+                ['除脂肪量', `${f1(leanKg(c))}kg`],
+                ['筋肉量・筋肉率', `${f1(c.muscle)}kg・${f1(musclePct(c))}%`],
+                ...(c.visceral !== undefined ? [['内臓脂肪レベル', `${kg(c.visceral)}（${visceralLabel(c.visceral)}）`] as [string, string]] : []),
+                ...(c.bmr !== undefined ? [['基礎代謝', `${comma(c.bmr)}kcal`] as [string, string]] : []),
+              ]}
+            />
+            <p>
+              <b>目標までの道すじ</b>
+            </p>
+            <ul>
+              <li>
+                除脂肪量 {f1(leanKg(c))}kg（筋肉・骨・水分など）を保ったまま {kg(s.goalWeight)}kg になると、体脂肪率は約 {f1(g.fatPct)}% です。
+                落とすのは<b>脂肪だけで約 {f1(g.fatToLose)}kg</b>、1か月 −{kg(s.perMonth)}kg なら約 {f1(months)}か月分です。
+              </li>
+              <li>
+                体組成を測るたびに「脂肪量が減って、除脂肪量・筋肉量が保てているか」を見ます。筋肉量の ±{kg(LEAN_TOLERANCE)}kg くらいは測り方でぶれる範囲です。
+              </li>
+              {cd.prev && cd.d && (
+                <li>
+                  前回（{jMD(cd.prev.d)}）から：脂肪量 {signed(cd.d.fatKg)}kg・除脂肪量 {signed(cd.d.lean)}kg・筋肉量 {signed(cd.d.muscle)}kg。
+                  {cd.d.fatKg < 0 && cd.d.lean >= -LEAN_TOLERANCE
+                    ? '脂肪が減って筋肉は保てています。この調子です。'
+                    : cd.d.lean < -LEAN_TOLERANCE
+                      ? '除脂肪量の減りが大きめです。たんぱく質と睡眠を見直し、筋トレの重さを落とさないようにします。'
+                      : '脂肪がまだ減っていません。7日平均の体重が計画線に沿っているかを合わせて見ます。'}
+                </li>
+              )}
+            </ul>
+            {guide && (
+              <>
+                <p>
+                  <b>1日の目安</b>
+                </p>
+                <Kv
+                  rows={[
+                    ['たんぱく質', `${guide.protein}g（除脂肪量 × 2.2g）`],
+                    ['エネルギー', `約${comma(guide.kcal)}kcal`],
+                  ]}
+                />
+                <ul>
+                  <li>
+                    消費の目安は基礎代謝 {comma(c.bmr!)}kcal × 1.5 ≒ {comma(guide.burn)}kcal。1か月 −{kg(s.perMonth)}kg（脂肪1kg ≒ 7,200kcal）には1日約 {guide.deficit}kcal 減らします。
+                  </li>
+                  <li>減量中に筋肉を守るいちばんの方法は、たんぱく質を毎食とること・筋トレの重さを保つこと・{SLEEP_TARGET_H}時間眠ることです。</li>
+                  <li>食べる量は基礎代謝を下回らないようにします。</li>
+                </ul>
+              </>
+            )}
+            {c.visceral !== undefined && (
+              <p>
+                <b>内臓脂肪</b>：TANITA の区分は 1〜9 が標準、10〜14 がやや過剰、15 以上が過剰です。内臓脂肪は体重・体脂肪と一緒に下がりやすく、有酸素運動を続けると減りやすいとされています。
+              </p>
+            )}
+            <p className="muted">
+              測る条件で数値が変わるので、2〜4週に1回、同じ時間帯・同じ条件（朝・トイレのあと・食事の前。運動や入浴の直後は避ける）で測ります。数値は体組成計の推定値です。
+            </p>
           </>
         ),
       };

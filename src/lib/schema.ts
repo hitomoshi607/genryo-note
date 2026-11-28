@@ -1,5 +1,5 @@
 // 保存データの形と、読み込んだデータを安全な形に整える処理
-import { DEFAULT_CARDIO, DEFAULT_GOAL, type Session } from '../data/plan';
+import { DEFAULT_CARDIO, DEFAULT_GOAL, FIRST_COMP, type Session } from '../data/plan';
 import { isHHMM, isYmd } from './date';
 
 export type DayKind = 'lift' | 'cardio' | 'rest';
@@ -24,6 +24,24 @@ export interface CardioRec {
   speed: number;
 }
 
+/** 体組成計（TANITA）の結果。脂肪量・除脂肪量などは体重と体脂肪率から出す */
+export interface Comp {
+  /** 体重 kg */
+  w: number;
+  /** 体脂肪率 % */
+  fat: number;
+  /** 筋肉量 kg */
+  muscle: number;
+  /** 内臓脂肪レベル */
+  visceral?: number;
+  /** 基礎代謝 kcal */
+  bmr?: number;
+  /** 推定骨量 kg */
+  bone?: number;
+  /** 体水分率 % */
+  water?: number;
+}
+
 export interface Settings {
   startDate: string;
   startWeight: number;
@@ -43,6 +61,8 @@ export interface AppData {
   /** その日に行った筋トレ（ベンチの日／デッドの日） */
   sessions: Record<string, Session>;
   cardio: Record<string, CardioRec>;
+  /** 体組成（測った日ごと） */
+  comp: Record<string, Comp>;
   settings: Settings;
 }
 
@@ -57,12 +77,13 @@ export const defaultSettings = (): Settings => ({
 
 export const defaults = (): AppData => ({
   v: 3,
-  // 開始時の体重を最初の記録にしておく（当日に量り直したら上書きされる）
-  weights: { [DEFAULT_GOAL.startDate]: DEFAULT_GOAL.startWeight },
+  // 開始時の体重と最初の体組成を記録にしておく（その日に量り直したら上書きされる）
+  weights: { [DEFAULT_GOAL.startDate]: DEFAULT_GOAL.startWeight, [FIRST_COMP.d]: FIRST_COMP.c.w },
   sleep: {},
   lifts: {},
   sessions: {},
   cardio: {},
+  comp: { [FIRST_COMP.d]: { ...FIRST_COMP.c } },
   settings: defaultSettings(),
 });
 
@@ -104,6 +125,25 @@ function normalizeLift(x: unknown): LiftRec | null {
   return { d: e.d, w: r1(w), r: r.slice(0, 10) };
 }
 
+function normalizeComp(x: unknown): Comp | null {
+  const e = obj(x);
+  const w = num(e.w, 30, 250);
+  const fat = num(e.fat, 1, 75);
+  const muscle = num(e.muscle, 10, 200);
+  if (w === undefined || fat === undefined || muscle === undefined || muscle >= w) return null;
+  const c: Comp = { w: r1(w), fat: r1(fat), muscle: r1(muscle) };
+  const visceral = num(e.visceral, 1, 59);
+  const bmr = num(e.bmr, 500, 5000);
+  const bone = num(e.bone, 0.5, 10);
+  const water = num(e.water, 20, 80);
+  // 内臓脂肪レベルは 0.5 刻みで出る機種がある
+  if (visceral !== undefined) c.visceral = Math.round(visceral * 2) / 2;
+  if (bmr !== undefined) c.bmr = Math.round(bmr);
+  if (bone !== undefined) c.bone = r1(bone);
+  if (water !== undefined) c.water = r1(water);
+  return c;
+}
+
 /** 読み込んだ JSON を、この版の形に整える（壊れた項目は捨てる） */
 export function normalize(x: unknown): AppData {
   const e = obj(x);
@@ -134,9 +174,19 @@ export function normalize(x: unknown): AppData {
       out.cardio[d] = { min: Math.round(min), incline: num(v.incline, 0, 30) ?? 0, speed: num(v.speed, 0, 20) ?? 0 };
     }
   }
+  if ('comp' in e) {
+    out.comp = {};
+    for (const [d, c] of Object.entries(obj(e.comp))) {
+      const v = normalizeComp(c);
+      if (isYmd(d) && v) out.comp[d] = v;
+    }
+  } else if (out.weights[FIRST_COMP.d] === undefined && 'weights' in e) {
+    // 体組成を足す前のデータ：最初の体組成（defaults の値）を残し、その日の体重がなければ入れる
+    out.weights[FIRST_COMP.d] = FIRST_COMP.c.w;
+  }
   out.settings = normalizeSettings(e.settings);
-  // 体重が1件もないデータ（新しく始めた直後など）は、開始時の体重を入れておく
-  if (!Object.keys(out.weights).length && !('weights' in e)) out.weights[out.settings.startDate] = out.settings.startWeight;
+  // 体重のないデータ（新しく始めた直後など）は、最初からある記録を入れておく
+  if (!('weights' in e)) out.weights = { ...defaults().weights };
   return out;
 }
 
@@ -150,6 +200,7 @@ export function summarize(d: AppData) {
     sleep: Object.keys(d.sleep).length,
     lifts: Object.values(d.lifts).reduce((a, l) => a + l.length, 0),
     cardio: Object.keys(d.cardio).length,
+    comp: Object.keys(d.comp).length,
   };
 }
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { WeightChart } from '../components/charts';
+import { CompCard } from '../components/Comp';
 import { WeightInput } from '../components/Inputs';
 import { deleteWeight } from '../lib/actions';
 import { jDate, jMD } from '../lib/date';
@@ -57,6 +58,8 @@ export function Weight() {
           </div>
         </Card>
       )}
+
+      <CompCard />
 
       <Card title="推移">
         <Seg

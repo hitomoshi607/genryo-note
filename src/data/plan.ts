@@ -8,6 +8,12 @@ export const DEFAULT_GOAL = {
   perMonth: 2,
 } as const;
 
+/** 最初の体組成（TANITA 2026-11-28）。体重は 脂肪量21.2 ＋ 除脂肪量59.0 */
+export const FIRST_COMP = {
+  d: '2026-11-28',
+  c: { w: 80.2, fat: 26.4, muscle: 55.9, visceral: 11, bmr: 1731, bone: 3.1, water: 49.6 },
+} as const;
+
 /** いつものジムの設備。メニューはここにあるものだけを使う */
 export const EQUIPMENT = [
   // マシンエリア

@@ -247,7 +247,7 @@ function ImportBody({ onDone }: { onDone: () => void }) {
       {err && <p className="hint err">{err}</p>}
       {sum && (
         <p className="sub n">
-          体重 {sum.weights}件{sum.from ? `（${sum.from}〜${sum.to}）` : ''}・睡眠 {sum.sleep}件・筋トレ {sum.lifts}件・有酸素 {sum.cardio}件
+          体重 {sum.weights}件{sum.from ? `（${sum.from}〜${sum.to}）` : ''}・睡眠 {sum.sleep}件・筋トレ {sum.lifts}件・有酸素 {sum.cardio}件・体組成 {sum.comp}件
         </p>
       )}
       {parsed && (

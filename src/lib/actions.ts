@@ -1,7 +1,7 @@
 // 記録の追加・変更・削除
 import type { Session } from '../data/plan';
 import { r1 } from './format';
-import { defaults, type AppData, type CardioRec, type Settings, type SleepRec } from './schema';
+import { defaults, type AppData, type CardioRec, type Comp, type Settings, type SleepRec } from './schema';
 import { update } from './store';
 
 const without = <T,>(rec: Record<string, T>, key: string) => {
@@ -41,10 +41,20 @@ export const saveCardio = (d: string, rec: CardioRec) => update((s) => ({ ...s, 
 
 export const deleteCardio = (d: string) => update((s) => ({ ...s, cardio: without(s.cardio, d) }));
 
+/** 体組成の記録。その日の体重がまだなければ、体組成計の体重を体重の記録にも入れる */
+export const saveComp = (d: string, c: Comp) =>
+  update((s) => ({
+    ...s,
+    comp: { ...s.comp, [d]: c },
+    weights: s.weights[d] === undefined ? { ...s.weights, [d]: r1(c.w) } : s.weights,
+  }));
+
+export const deleteComp = (d: string) => update((s) => ({ ...s, comp: without(s.comp, d) }));
+
 export const saveSettings = (settings: Settings) => update((s) => ({ ...s, settings }));
 
 /** 記録をすべて消す（設定は残す） */
-export const resetAll = () => update((s) => ({ ...defaults(), weights: {}, settings: s.settings }));
+export const resetAll = () => update((s) => ({ ...defaults(), weights: {}, comp: {}, settings: s.settings }));
 
 /** バックアップを読み込む。merge は今の記録に足す（同じ日は読み込んだほうを使う） */
 export function importData(x: AppData, mode: 'merge' | 'replace') {
@@ -63,6 +73,7 @@ export function importData(x: AppData, mode: 'merge' | 'replace') {
       lifts,
       sessions: { ...s.sessions, ...x.sessions },
       cardio: { ...s.cardio, ...x.cardio },
+      comp: { ...s.comp, ...x.comp },
     };
   });
 }
